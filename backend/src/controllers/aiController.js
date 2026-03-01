@@ -90,3 +90,55 @@ export const explainErrorLog = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+export const modifyWorkflowConfig = async (req, res) => {
+    try {
+        const { currentWorkflow, prompt } = req.body;
+        if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
+
+        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+
+        const systemPrompt = `You are a professional workflow architect. 
+        Modify the provided workflow (nodes and edges) based on the user's instructions.
+        
+        Keep existing node IDs where possible.
+        Ensure logic remains sound and connections are valid.
+        
+        Allowed Node Types & Config Schemas:
+        - webhook_trigger: { "method": "GET"|"POST" }
+        - schedule_trigger: { "cron": "string" }
+        - http_request: { "url": "string", "method": "GET"|"POST"|"PUT"|"DELETE" }
+        - send_email: { "to": "email", "subject": "string" }
+        - delay: { "duration_seconds": number }
+        - save_to_database: { "collection": "string" }
+        - ai_model: { "provider": "google"|"openai", "model": "string", "prompt": "Instruction with {{input}}" }
+        - ifElse: { "condition": "javascript_expression_using_payload" }
+        - log: { "message": "string" }
+
+        Current Workflow:
+        ${JSON.stringify(currentWorkflow, null, 2)}
+        
+        Return ONLY valid JSON.
+        Format: { "nodes": [...], "edges": [...] }`;
+
+        const result = await model.generateContent([
+            { text: systemPrompt },
+            { text: `User instruction to modify the workflow: ${prompt}` }
+        ]);
+
+        const text = result.response.text();
+        const flowJson = JSON.parse(cleanJson(text));
+        return res.json(flowJson);
+
+    } catch (error) {
+        console.error("AI Modification Error:", error);
+
+        if (error.status === 429) {
+            return res.status(429).json({
+                error: "AI Quota Exceeded. You have reached the daily limit for the free tier. Please wait a bit or try again later."
+            });
+        }
+
+        res.status(500).json({ error: error.message });
+    }
+};

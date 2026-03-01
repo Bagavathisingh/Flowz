@@ -192,7 +192,7 @@ export const executeAction = async (action, context) => {
             };
 
         case 'delay':
-            const delayMs = (parseInt(action.config?.duration_minutes) || 1) * 1000;
+            const delayMs = (parseInt(action.config?.duration_seconds) || 1) * 1000;
             await new Promise(resolve => setTimeout(resolve, delayMs));
             return { waited_ms: delayMs };
 
@@ -247,13 +247,23 @@ export const executeAction = async (action, context) => {
             const condition = action.config?.condition || "true";
             let evaluation = false;
             try {
-                evaluation = !!(new Function('payload', `return ${condition}`)(context.trigger.payload));
-            } catch (e) {
+                // Now supports results from previous nodes!
+                // Example: results['Summarize_AI'].output.includes('Urgent')
+                const evalFn = new Function('payload', 'results', `
+                    try {
+                        return ${condition};
+                    } catch (e) {
+                        return false;
+                    }
+                `);
+                evaluation = !!(evalFn(context.trigger.payload, context.results));
+            } catch (err) {
                 evaluation = false;
             }
             return {
                 outcome: evaluation ? 'true' : 'false',
-                evaluatedCondition: condition
+                evaluatedCondition: condition,
+                evaluationStatus: 'success'
             };
 
         case 'log':
@@ -308,6 +318,10 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
 
                 const result = await executeAction(actionData, context);
                 context.results[currentNode.id] = result;
+                if (currentNode.data?.label) {
+                    const labelKey = currentNode.data.label.replace(/\s+/g, '_');
+                    context.results[labelKey] = result;
+                }
 
                 nodeLogs.push({
                     nodeId: currentNode.id,

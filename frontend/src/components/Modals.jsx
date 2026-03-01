@@ -1,11 +1,21 @@
-import { Sparkles, Save, History, X, Code, Check } from 'lucide-react';
+import { Sparkles, Save, History, X, Code, Check, Trash2, Copy } from 'lucide-react';
+import { useState } from 'react';
 
 export default function Modals({
-    showAiModal, setShowAiModal, aiPrompt, setAiPrompt, isGenerating, generateWorkflow,
+    showAiModal, setShowAiModal, aiPrompt, setAiPrompt, isGenerating, generateWorkflow, modifyWorkflow,
     generatedJsonResult, applyGeneratedWorkflow, setGeneratedJsonResult,
     showSaveModal, setShowSaveModal, workflowName, setWorkflowName, isSaving, saveWorkflow,
-    showHistoryModal, setShowHistoryModal, isLoadingHistory, workflowHistory, loadWorkflow
+    showHistoryModal, setShowHistoryModal, isLoadingHistory, workflowHistory, loadWorkflow, deleteWorkflow
 }) {
+    const [copyStatus, setCopyStatus] = useState(null);
+    const [aiMode, setAiMode] = useState('create'); // 'create' or 'modify'
+
+    const handleCopyJson = (wf) => {
+        navigator.clipboard.writeText(JSON.stringify(wf, null, 2));
+        setCopyStatus(wf._id);
+        setTimeout(() => setCopyStatus(null), 2000);
+    };
+
     return (
         <>
             {/* AI Prompt Modal */}
@@ -23,9 +33,27 @@ export default function Modals({
 
                         {!generatedJsonResult ? (
                             <>
+                                <div className="flex bg-black/40 p-1 rounded-xl mb-6 border border-white/5">
+                                    <button
+                                        onClick={() => setAiMode('create')}
+                                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all border-none cursor-pointer ${aiMode === 'create' ? 'bg-purple-500 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200 bg-transparent'}`}
+                                    >
+                                        Create New
+                                    </button>
+                                    <button
+                                        onClick={() => setAiMode('modify')}
+                                        className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all border-none cursor-pointer ${aiMode === 'modify' ? 'bg-purple-500 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200 bg-transparent'}`}
+                                    >
+                                        Modify Current
+                                    </button>
+                                </div>
+
                                 <textarea
                                     className="w-full h-36 bg-black/20 border border-white/10 rounded-xl p-4 text-slate-50 text-base resize-none mb-6 transition-all focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 outline-none"
-                                    placeholder="e.g. When a webhook is received, delay for 5 minutes and then send an email..."
+                                    placeholder={aiMode === 'create'
+                                        ? "e.g. When a webhook is received, delay for 5 minutes and then send an email..."
+                                        : "e.g. Add an AI node after the webhook to summarize the body text..."
+                                    }
                                     value={aiPrompt}
                                     onChange={(e) => setAiPrompt(e.target.value)}
                                     disabled={isGenerating}
@@ -36,13 +64,13 @@ export default function Modals({
                                         onClick={() => setShowAiModal(false)} disabled={isGenerating}>Cancel</button>
                                     <button
                                         className="bg-gradient-to-br border-none from-purple-500 to-pink-500 hover:brightness-110 text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50 disabled:grayscale transition-all disabled:cursor-not-allowed flex items-center gap-2"
-                                        onClick={generateWorkflow} disabled={isGenerating || !aiPrompt.trim()}>
+                                        onClick={aiMode === 'create' ? generateWorkflow : modifyWorkflow} disabled={isGenerating || !aiPrompt.trim()}>
                                         {isGenerating ? (
                                             <>
                                                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                                Analyzing...
+                                                {aiMode === 'create' ? 'Generating Architecture...' : 'Analyzing Workflow...'}
                                             </>
-                                        ) : 'Generate Architecture'}
+                                        ) : (aiMode === 'create' ? 'Generate Workflow' : 'Apply Modifications')}
                                     </button>
                                 </div>
                             </>
@@ -119,7 +147,7 @@ export default function Modals({
             {/* History Modal */}
             {showHistoryModal && (
                 <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 animate-[fadeIn_0.2s_ease]">
-                    <div className="bg-slate-900 border border-white/10 rounded-2xl p-8 w-[90%] max-w-[600px] shadow-[0_24px_64px_rgba(0,0,0,0.6)] animate-[slideUp_0.3s_cubic-bezier(0.16,1,0.3,1)]">
+                    <div className="bg-slate-900 border border-white/10 rounded-2xl p-8 w-[95%] max-w-[700px] shadow-[0_24px_64px_rgba(0,0,0,0.6)] animate-[slideUp_0.3s_cubic-bezier(0.16,1,0.3,1)]">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="m-0 flex items-center gap-2 text-2xl font-semibold text-white">
                                 <History size={24} className="text-blue-500" /> Workflow History
@@ -129,23 +157,57 @@ export default function Modals({
                             </button>
                         </div>
 
-                        <div className="max-h-[400px] overflow-y-auto pr-2 flex flex-col gap-3 custom-scrollbar">
+                        <div className="max-h-[450px] overflow-y-auto pr-2 flex flex-col gap-3 custom-scrollbar">
                             {isLoadingHistory ? (
-                                <p className="text-slate-400">Loading history...</p>
+                                <div className="flex flex-col items-center py-10 gap-3">
+                                    <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                                    <p className="text-slate-400">Retrieving your workflows...</p>
+                                </div>
                             ) : workflowHistory.length === 0 ? (
-                                <p className="text-slate-400">No workflows saved yet.</p>
+                                <div className="text-center py-10">
+                                    <History size={48} className="text-slate-700 mx-auto mb-3" />
+                                    <p className="text-slate-400">No workflows saved yet.</p>
+                                </div>
                             ) : (
                                 workflowHistory.map((wf) => (
-                                    <div key={wf._id} className="p-4 bg-slate-800/40 rounded-xl border border-white/5 flex justify-between items-center hover:bg-slate-800/60 transition-colors">
-                                        <div>
-                                            <h4 className="m-0 mb-2 text-base text-slate-100 font-semibold">{wf.name}</h4>
-                                            <small className="text-slate-500">
-                                                {new Date(wf.createdAt).toLocaleString()} • {wf.nodes?.length || 0} nodes
-                                            </small>
+                                    <div key={wf._id} className="p-4 bg-slate-800/40 rounded-xl border border-white/5 flex justify-between items-center hover:bg-slate-800/60 transition-all group">
+                                        <div className="flex-1 min-w-0 pr-4">
+                                            <h4 className="m-0 mb-1 text-base text-slate-100 font-semibold truncate">{wf.name}</h4>
+                                            <div className="flex items-center gap-2 text-slate-500 text-xs">
+                                                <span>{new Date(wf.createdAt).toLocaleDateString()}</span>
+                                                <span className="w-1 h-1 bg-slate-700 rounded-full"></span>
+                                                <span className="bg-slate-900/50 px-2 py-0.5 rounded border border-white/5">{wf.nodes?.length || 0} nodes</span>
+                                            </div>
                                         </div>
-                                        <button className="bg-blue-500 hover:bg-blue-600 border-none text-white px-4 py-2 rounded shadow transition-all hover:shadow-md hover:-translate-y-[1px]" onClick={() => loadWorkflow(wf)}>
-                                            Load
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                className={`p-2 rounded-lg border border-white/10 transition-all flex items-center justify-center relative ${copyStatus === wf._id ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-transparent text-slate-400 hover:text-blue-400 hover:border-blue-400/30'}`}
+                                                title="Copy JSON"
+                                                onClick={() => handleCopyJson(wf)}
+                                            >
+                                                {copyStatus === wf._id ? <Check size={16} /> : <Copy size={16} />}
+                                                {copyStatus === wf._id && (
+                                                    <span className="absolute -top-10 left-1/2 -translate-x-1/2 bg-emerald-500 text-white text-[10px] px-2 py-1 rounded shadow-lg animate-bounce">Copied!</span>
+                                                )}
+                                            </button>
+                                            <button
+                                                className="p-2 rounded-lg border border-white/10 bg-transparent text-slate-400 hover:text-red-400 hover:border-red-400/30 transition-all flex items-center justify-center"
+                                                title="Delete Workflow"
+                                                onClick={() => {
+                                                    if (window.confirm(`Are you sure you want to delete "${wf.name}"?`)) {
+                                                        deleteWorkflow(wf._id);
+                                                    }
+                                                }}
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                            <button
+                                                className="bg-blue-500 hover:bg-blue-600 border-none text-white px-5 py-2 rounded-lg font-medium shadow-lg hover:shadow-blue-500/20 transition-all hover:-translate-y-[1px] active:translate-y-0"
+                                                onClick={() => loadWorkflow(wf)}
+                                            >
+                                                Load
+                                            </button>
+                                        </div>
                                     </div>
                                 ))
                             )}

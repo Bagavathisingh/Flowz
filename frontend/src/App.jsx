@@ -19,6 +19,7 @@ import CustomNode from './components/CustomNode';
 import Modals from './components/Modals';
 import PropertiesSidebar from './components/PropertiesSidebar';
 import Notification from './components/Notification';
+import ContextMenu from './components/ContextMenu';
 
 const API_URL = 'http://localhost:5000/api';
 
@@ -38,6 +39,7 @@ const BuilderCanvas = () => {
   const [selectedNode, setSelectedNode] = useState(null);
   const [generatedJsonResult, setGeneratedJsonResult] = useState(null);
   const [notification, setNotification] = useState(null);
+  const [menu, setMenu] = useState(null);
 
   const [workflowHistory, setWorkflowHistory] = useState([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -53,6 +55,57 @@ const BuilderCanvas = () => {
   const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
   const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), []);
+
+  const onNodeContextMenu = useCallback(
+    (event, node) => {
+      event.preventDefault();
+      const pane = reactFlowWrapper.current.getBoundingClientRect();
+      setMenu({
+        id: node.id,
+        type: 'node',
+        node: node,
+        top: event.clientY < pane.height - 200 ? event.clientY - pane.top : undefined,
+        left: event.clientX < pane.width - 200 ? event.clientX - pane.left : undefined,
+        right: event.clientX >= pane.width - 200 ? pane.width - (event.clientX - pane.left) : undefined,
+        bottom: event.clientY >= pane.height - 200 ? pane.height - (event.clientY - pane.top) : undefined,
+      });
+    },
+    [setMenu],
+  );
+
+  const onEdgeContextMenu = useCallback(
+    (event, edge) => {
+      event.preventDefault();
+      const pane = reactFlowWrapper.current.getBoundingClientRect();
+      setMenu({
+        id: edge.id,
+        type: 'edge',
+        edge: edge,
+        top: event.clientY < pane.height - 200 ? event.clientY - pane.top : undefined,
+        left: event.clientX < pane.width - 200 ? event.clientX - pane.left : undefined,
+        right: event.clientX >= pane.width - 200 ? pane.width - (event.clientX - pane.left) : undefined,
+        bottom: event.clientY >= pane.height - 200 ? pane.height - (event.clientY - pane.top) : undefined,
+      });
+    },
+    [setMenu],
+  );
+
+  const onPaneContextMenu = useCallback((event) => {
+    event.preventDefault();
+    setMenu(null);
+  }, [setMenu]);
+
+  const deleteNode = useCallback((id) => {
+    setNodes((nds) => nds.filter((node) => node.id !== id));
+    setEdges((eds) => eds.filter((edge) => edge.source !== id && edge.target !== id));
+    setMenu(null);
+    if (selectedNode?.id === id) setSelectedNode(null);
+  }, [setNodes, setEdges, selectedNode]);
+
+  const deleteEdge = useCallback((id) => {
+    setEdges((eds) => eds.filter((edge) => edge.id !== id));
+    setMenu(null);
+  }, [setEdges]);
 
   const onDragOver = useCallback((event) => {
     event.preventDefault();
@@ -92,11 +145,17 @@ const BuilderCanvas = () => {
 
   const onNodeClick = useCallback((event, node) => {
     setSelectedNode(node);
+    setMenu(null);
   }, []);
 
-  const onPaneClick = useCallback(() => {
-    setSelectedNode(null);
+  const closeMenu = useCallback(() => {
+    setMenu(null);
   }, []);
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNode(null);
+    closeMenu();
+  }, [closeMenu]);
 
   const updateNodeConfig = (key, value) => {
     if (!selectedNode) return;
@@ -118,7 +177,6 @@ const BuilderCanvas = () => {
       data: { ...prev.data, config: updatedConfig }
     }));
   };
-
   const generateWorkflow = async () => {
     if (!aiPrompt) return;
     setIsGenerating(true);
@@ -130,6 +188,25 @@ const BuilderCanvas = () => {
     } catch (error) {
       console.error('Failed to generate workflow:', error);
       notify('error', error.response?.data?.error || 'Failed to generate workflow.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const modifyWorkflow = async () => {
+    if (!aiPrompt) return;
+    setIsGenerating(true);
+    setGeneratedJsonResult(null);
+    try {
+      const { data } = await axios.post(`${API_URL}/ai/modify-workflow`, {
+        currentWorkflow: { nodes, edges },
+        prompt: aiPrompt
+      });
+      setGeneratedJsonResult(data);
+      notify('success', 'Workflow modification suggested by AI.');
+    } catch (error) {
+      console.error('Failed to modify workflow:', error);
+      notify('error', error.response?.data?.error || 'Failed to modify workflow.');
     } finally {
       setIsGenerating(false);
     }
@@ -210,7 +287,41 @@ const BuilderCanvas = () => {
     if (nodes.length === 0) return notify('info', 'Please add nodes to test your workflow.');
     setIsExecuting(true);
 
-    // Initial state: Set all nodes to pending (null status)
+    // Initial payload with browser info
+    let payload = {
+      event: "user_login",
+      user: "admin_user",
+      browser: navigator.userAgent
+    };
+
+    // Attempt to get exact location
+    const getLocationFromBrowser = async () => {
+      if (!navigator.geolocation) return { location: "Geolocation not supported" };
+      return new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            const { latitude: lat, longitude: lon } = pos.coords;
+            try {
+              const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+              const data = await res.json();
+              resolve({
+                location: data.display_name || `Lat: ${lat}, Lon: ${lon}`,
+                coordinates: { lat, lon }
+              });
+            } catch (e) {
+              resolve({ location: `Lat: ${lat}, Lon: ${lon}` });
+            }
+          },
+          () => resolve({ location: "Location access denied" }),
+          { timeout: 8000 }
+        );
+      });
+    };
+
+    const locationData = await getLocationFromBrowser();
+    payload = { ...payload, ...locationData };
+
+    // Initial state: Set all nodes to pending
     setNodes(nds => nds.map(n => ({
       ...n,
       data: { ...n.data, executionStatus: null, executionResult: null }
@@ -220,13 +331,7 @@ const BuilderCanvas = () => {
       const res = await axios.post(`${API_URL}/workflows/test/execute`, {
         nodes,
         edges,
-        payload: {
-          event: "user_login",
-          user: "admin_user",
-          ip_address: "106.192.167.104",
-          location: "Chennai, Tamil Nadu, India",
-          browser: "Chrome/Windows"
-        }
+        payload
       });
 
       const { nodeLogs } = res.data;
@@ -296,6 +401,17 @@ const BuilderCanvas = () => {
     setShowHistoryModal(false);
     notify('info', `Loaded workflow: ${workflow.name}`);
     setTimeout(() => setViewport({ x: 0, y: 0, zoom: 1 }), 100);
+  };
+
+  const deleteWorkflow = async (id) => {
+    try {
+      await axios.delete(`${API_URL}/workflows/${id}`);
+      notify('success', 'Workflow deleted successfully!');
+      fetchWorkflows();
+    } catch (error) {
+      console.error('Failed to delete workflow:', error);
+      notify('error', 'Could not delete workflow.');
+    }
   };
 
   const onLayout = useCallback(() => {
@@ -379,7 +495,10 @@ const BuilderCanvas = () => {
           onDrop={onDrop}
           onDragOver={onDragOver}
           onNodeClick={onNodeClick}
-          onPaneClick={onPaneClick}
+          onPaneClick={handlePaneClick}
+          onNodeContextMenu={onNodeContextMenu}
+          onEdgeContextMenu={onEdgeContextMenu}
+          onPaneContextMenu={onPaneContextMenu}
           nodeTypes={nodeTypes}
           fitView
           colorMode="dark"
@@ -387,6 +506,16 @@ const BuilderCanvas = () => {
           <Background color="#30363d" gap={20} />
           <Controls />
         </ReactFlow>
+
+        {menu && (
+          <ContextMenu
+            onClick={closeMenu}
+            {...menu}
+            deleteNode={deleteNode}
+            deleteEdge={deleteEdge}
+            setSelectedNode={setSelectedNode}
+          />
+        )}
       </div>
 
       {selectedNode && (
@@ -399,10 +528,10 @@ const BuilderCanvas = () => {
 
       <Modals
         showAiModal={showAiModal} setShowAiModal={setShowAiModal} aiPrompt={aiPrompt} setAiPrompt={setAiPrompt}
-        isGenerating={isGenerating} generateWorkflow={generateWorkflow}
+        isGenerating={isGenerating} generateWorkflow={generateWorkflow} modifyWorkflow={modifyWorkflow}
         generatedJsonResult={generatedJsonResult} applyGeneratedWorkflow={applyGeneratedWorkflow} setGeneratedJsonResult={setGeneratedJsonResult}
         showSaveModal={showSaveModal} setShowSaveModal={setShowSaveModal} workflowName={workflowName} setWorkflowName={setWorkflowName} isSaving={isSaving} saveWorkflow={saveWorkflow}
-        showHistoryModal={showHistoryModal} setShowHistoryModal={setShowHistoryModal} isLoadingHistory={isLoadingHistory} workflowHistory={workflowHistory} loadWorkflow={loadWorkflow}
+        showHistoryModal={showHistoryModal} setShowHistoryModal={setShowHistoryModal} isLoadingHistory={isLoadingHistory} workflowHistory={workflowHistory} loadWorkflow={loadWorkflow} deleteWorkflow={deleteWorkflow}
       />
 
       <Notification notification={notification} setNotification={setNotification} />

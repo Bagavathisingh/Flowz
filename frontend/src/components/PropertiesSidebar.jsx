@@ -125,7 +125,7 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                     {selectedNode.data.type === 'delay' && (
                         <div className="flex flex-col gap-2">
                             <label className="text-[0.8rem] text-slate-400 font-medium">Duration (Seconds)</label>
-                            <input type="number" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" placeholder="5" value={selectedNode.data.config?.duration_minutes || ''} onChange={(e) => updateNodeConfig('duration_minutes', e.target.value)} />
+                            <input type="number" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" placeholder="5" value={selectedNode.data.config?.duration_seconds || ''} onChange={(e) => updateNodeConfig('duration_seconds', e.target.value)} />
                         </div>
                     )}
 

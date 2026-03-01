@@ -1,5 +1,5 @@
 import express from 'express';
-import { generateWorkflowConfig, explainErrorLog } from '../controllers/aiController.js';
+import { generateWorkflowConfig, explainErrorLog, modifyWorkflowConfig } from '../controllers/aiController.js';
 import { runWorkflow } from '../engine/index.js';
 import Workflow from '../models/Workflow.js';
 
@@ -7,6 +7,7 @@ const router = express.Router();
 
 // AI Routes
 router.post('/ai/generate-workflow', generateWorkflowConfig);
+router.post('/ai/modify-workflow', modifyWorkflowConfig);
 router.post('/ai/explain-error', explainErrorLog);
 
 // Workflow execution testing route
@@ -51,6 +52,15 @@ router.post('/workflows', async (req, res) => {
         res.status(201).json(savedWorkflow);
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+});
+
+router.delete('/workflows/:id', async (req, res) => {
+    try {
+        await Workflow.findByIdAndDelete(req.params.id);
+        res.json({ message: 'Workflow deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
