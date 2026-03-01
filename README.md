@@ -1,4 +1,4 @@
-# 🌊 Flowz
+#  Flowz
 
 **Flowz** is a powerful, premium workflow automation platform that allows you to build, visualize, and execute complex logic chains through an intuitive drag-and-drop interface. Inspired by tools like n8n, Flowz brings AI-powered intelligence and seamless integrations to your automation tasks.
 
@@ -6,7 +6,7 @@
 
 ---
 
-## ✨ Key Features
+## Key Features
 
 - **Intuitive Workflow Builder**: Create automation flows using a high-performance drag-and-drop canvas powered by React Flow.
 - **AI-Powered Generation**: Simply describe your automation in plain English, and Flowz will architect the entire workflow for you using Google Gemini.
@@ -22,7 +22,7 @@
 
 ---
 
-## 🛠 Tech Stack
+##  Tech Stack
 
 ### Frontend
 - **React 19** & **Vite**
@@ -39,7 +39,7 @@
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - Node.js (v18+)
@@ -84,7 +84,7 @@ Access the application at `http://localhost:5173`
 
 ---
 
-## 📖 How to Use
+##  How to Use
 
 1. **Create**: Drag nodes from the left sidebar onto the canvas.
 2. **Connect**: Link the dots between nodes to define the execution order.
@@ -95,7 +95,7 @@ Access the application at `http://localhost:5173`
 
 ---
 
-## 📜 License
+##  License
 MIT License - Developed for Advanced Agentic Coding.
 
 ---
