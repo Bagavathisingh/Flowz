@@ -12,6 +12,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
+import { Zap, Plus } from 'lucide-react';
 
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
@@ -20,6 +21,9 @@ import Modals from './components/Modals';
 import PropertiesSidebar from './components/PropertiesSidebar';
 import Notification from './components/Notification';
 import ContextMenu from './components/ContextMenu';
+import ExecutionPanel from './components/ExecutionPanel';
+import TestInputModal from './components/TestInputModal';
+import PublishModal from './components/PublishModal';
 
 const API_URL = 'http://localhost:5000/api';
 
@@ -33,6 +37,7 @@ const nodeTypes = {
 const BuilderCanvas = () => {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showAiModal, setShowAiModal] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -44,10 +49,16 @@ const BuilderCanvas = () => {
   const [workflowHistory, setWorkflowHistory] = useState([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showGithubModal, setShowGithubModal] = useState(false);
   const [workflowName, setWorkflowName] = useState('');
+  const [githubConfig, setGithubConfig] = useState({ owner: '', repo: '', token: '', path: 'workflow.json', message: 'Update workflow from Flowz' });
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [executionResult, setExecutionResult] = useState(null);
+  const [showExecutionPanel, setShowExecutionPanel] = useState(false);
+  const [showTestInputModal, setShowTestInputModal] = useState(false);
+  const [showPublishModal, setShowPublishModal] = useState(false);
 
   const reactFlowWrapper = useRef(null);
   const { screenToFlowPosition, setViewport } = useReactFlow();
@@ -283,45 +294,17 @@ const BuilderCanvas = () => {
     setTimeout(() => setViewport({ x: 0, y: 0, zoom: 1 }), 100);
   };
 
-  const handleTestRun = async () => {
+  // Open the test input modal first — actual execution happens after user fills inputs
+  const handleTestRun = () => {
     if (nodes.length === 0) return notify('info', 'Please add nodes to test your workflow.');
+    setShowTestInputModal(true);
+  };
+
+  // Called by TestInputModal with the filled payload
+  const executeTestRun = async (testPayload) => {
     setIsExecuting(true);
 
-    // Initial payload with browser info
-    let payload = {
-      event: "user_login",
-      user: "admin_user",
-      browser: navigator.userAgent
-    };
-
-    // Attempt to get exact location
-    const getLocationFromBrowser = async () => {
-      if (!navigator.geolocation) return { location: "Geolocation not supported" };
-      return new Promise((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-          async (pos) => {
-            const { latitude: lat, longitude: lon } = pos.coords;
-            try {
-              const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
-              const data = await res.json();
-              resolve({
-                location: data.display_name || `Lat: ${lat}, Lon: ${lon}`,
-                coordinates: { lat, lon }
-              });
-            } catch (e) {
-              resolve({ location: `Lat: ${lat}, Lon: ${lon}` });
-            }
-          },
-          () => resolve({ location: "Location access denied" }),
-          { timeout: 8000 }
-        );
-      });
-    };
-
-    const locationData = await getLocationFromBrowser();
-    payload = { ...payload, ...locationData };
-
-    // Initial state: Set all nodes to pending
+    // Reset node statuses
     setNodes(nds => nds.map(n => ({
       ...n,
       data: { ...n.data, executionStatus: null, executionResult: null }
@@ -331,42 +314,35 @@ const BuilderCanvas = () => {
       const res = await axios.post(`${API_URL}/workflows/test/execute`, {
         nodes,
         edges,
-        payload
+        payload: testPayload
       });
 
       const { nodeLogs } = res.data;
 
-      // SEQUENTIAL ANIMATION
+      // SEQUENTIAL ANIMATION per node
       for (const log of nodeLogs) {
         setNodes(nds => nds.map(node =>
           node.id === log.nodeId
             ? { ...node, data: { ...node.data, executionStatus: 'loading' } }
             : node
         ));
-
         await new Promise(r => setTimeout(r, 600));
-
         setNodes(nds => nds.map(node =>
           node.id === log.nodeId
-            ? {
-              ...node,
-              data: {
-                ...node.data,
-                executionStatus: log.status,
-                executionResult: log.result || log.error
-              }
-            }
+            ? { ...node, data: { ...node.data, executionStatus: log.status, executionResult: log.result || log.error } }
             : node
         ));
-
         await new Promise(r => setTimeout(r, 200));
       }
 
       if (res.data.status === 'failure') {
         notify('error', res.data.error, 'Workflow Execution Failed');
       } else {
-        notify('success', 'Workflow executed successfully from start to finish!', 'Success');
+        notify('success', 'All nodes executed successfully!', 'Success');
       }
+
+      setExecutionResult(res.data);
+      setShowExecutionPanel(true);
 
     } catch (e) {
       console.error(e);
@@ -472,19 +448,64 @@ const BuilderCanvas = () => {
     }
   };
 
+  const pushWorkflowToGithub = async () => {
+    const { owner, repo, token, path, message } = githubConfig;
+    if (!owner || !repo || !token) {
+      return notify('error', 'Please provide Owner, Repo, and Token.');
+    }
+    setIsSaving(true);
+    try {
+      await axios.post(`${API_URL}/workflows/push-to-github`, {
+        owner,
+        repo,
+        token,
+        path,
+        message,
+        content: JSON.stringify({ nodes, edges }, null, 2)
+      });
+      setShowGithubModal(false);
+      notify('success', 'Workflow successfully pushed to GitHub!');
+    } catch (error) {
+      console.error('Failed to push to GitHub:', error);
+      notify('error', error.response?.data?.error || 'Error pushing to GitHub.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
-    <div className="flex h-screen w-screen bg-[#020617] text-slate-200 font-['Outfit'] overflow-hidden">
-      <Sidebar />
+    <div className="flex h-screen w-screen bg-[#020617] text-slate-200 font-['Outfit'] overflow-hidden relative">
+      <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
 
       <div className="flex-1 relative bg-[radial-gradient(circle_at_50%_50%,rgba(30,41,59,0.5)_1px,transparent_1px)] bg-[size:24px_24px]" ref={reactFlowWrapper}>
-        <TopBar
-          setShowSaveModal={setShowSaveModal}
-          openHistoryModal={openHistoryModal}
-          setShowAiModal={setShowAiModal}
-          handleTestRun={handleTestRun}
-          isExecuting={isExecuting}
-          onLayout={onLayout}
-        />
+        <div className="relative z-30">
+          <TopBar
+            setShowSaveModal={setShowSaveModal}
+            setShowGithubModal={setShowGithubModal}
+            openHistoryModal={openHistoryModal}
+            setShowAiModal={setShowAiModal}
+            handleTestRun={handleTestRun}
+            isExecuting={isExecuting}
+            onLayout={onLayout}
+            setIsSidebarOpen={setIsSidebarOpen}
+            isSidebarOpen={isSidebarOpen}
+            hasNodes={nodes.length > 0}
+          />
+        </div>
+
+        {nodes.length === 0 && !isSidebarOpen && (
+          <div className="absolute inset-0 flex items-center justify-center z-10 animate-[fadeIn_0.5s_ease] pointer-events-none">
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="group flex flex-col items-center gap-4 bg-transparent border-none cursor-pointer hover:scale-105 transition-all active:scale-95 pointer-events-auto"
+            >
+              <div className="w-24 h-24 rounded-[2rem] border-2 border-dashed border-slate-600 flex items-center justify-center bg-slate-900/30 group-hover:border-blue-500/50 group-hover:bg-slate-800/40 transition-colors">
+                <Plus size={40} className="text-slate-500 group-hover:text-blue-400 transition-colors" strokeWidth={1.5} />
+              </div>
+              <span className="text-xl font-bold text-white tracking-tight drop-shadow-md">Add first step...</span>
+            </button>
+          </div>
+        )}
 
         <ReactFlow
           nodes={nodes}
@@ -532,6 +553,30 @@ const BuilderCanvas = () => {
         generatedJsonResult={generatedJsonResult} applyGeneratedWorkflow={applyGeneratedWorkflow} setGeneratedJsonResult={setGeneratedJsonResult}
         showSaveModal={showSaveModal} setShowSaveModal={setShowSaveModal} workflowName={workflowName} setWorkflowName={setWorkflowName} isSaving={isSaving} saveWorkflow={saveWorkflow}
         showHistoryModal={showHistoryModal} setShowHistoryModal={setShowHistoryModal} isLoadingHistory={isLoadingHistory} workflowHistory={workflowHistory} loadWorkflow={loadWorkflow} deleteWorkflow={deleteWorkflow}
+        showGithubModal={showGithubModal} setShowGithubModal={setShowGithubModal} githubConfig={githubConfig} setGithubConfig={setGithubConfig} pushWorkflowToGithub={pushWorkflowToGithub}
+      />
+
+      <ExecutionPanel
+        isOpen={showExecutionPanel}
+        onClose={() => setShowExecutionPanel(false)}
+        executionResult={executionResult}
+        nodes={nodes}
+        onPublish={() => setShowPublishModal(true)}
+      />
+
+      <TestInputModal
+        isOpen={showTestInputModal}
+        onClose={() => setShowTestInputModal(false)}
+        onRun={executeTestRun}
+        triggerNode={nodes.find(n => n.data?.isTrigger || n.data?.type?.toLowerCase().includes('trigger') || n.data?.type === 'app_event' || n.data?.type === 'form_submission' || n.data?.type === 'chat_message' || n.data?.type === 'other_ways')}
+      />
+
+      <PublishModal
+        isOpen={showPublishModal}
+        onClose={() => setShowPublishModal(false)}
+        nodes={nodes}
+        edges={edges}
+        triggerNode={nodes.find(n => n.data?.isTrigger || n.data?.type?.toLowerCase().includes('trigger') || n.data?.type === 'app_event' || n.data?.type === 'form_submission' || n.data?.type === 'chat_message' || n.data?.type === 'other_ways')}
       />
 
       <Notification notification={notification} setNotification={setNotification} />

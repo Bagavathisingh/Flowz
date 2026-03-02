@@ -26,7 +26,6 @@ const setupEmail = async () => {
     }
 };
 
-// Cache for external MongoDB connections to avoid re-connecting every node
 const dbConnections = new Map();
 
 const getExternalDb = async (connectionString) => {
@@ -46,8 +45,77 @@ export const executeAction = async (action, context) => {
         case 'webhook_trigger':
             return {
                 status: 'received',
+                trigger_type: 'webhook',
                 timestamp: new Date().toISOString(),
                 input: context.trigger.payload
+            };
+
+        case 'manual_trigger':
+            return {
+                status: 'triggered',
+                trigger_type: 'manual',
+                timestamp: new Date().toISOString(),
+                message: 'Workflow started manually.',
+                input: context.trigger.payload || {}
+            };
+
+        case 'schedule_trigger': {
+            const intervalSec = parseInt(action.config?.interval || 3600);
+            return {
+                status: 'triggered',
+                trigger_type: 'schedule',
+                interval_seconds: intervalSec,
+                timestamp: new Date().toISOString(),
+                next_run: new Date(Date.now() + intervalSec * 1000).toISOString(),
+                input: context.trigger.payload || {}
+            };
+        }
+
+        case 'app_event':
+            return {
+                status: 'triggered',
+                trigger_type: 'app_event',
+                timestamp: new Date().toISOString(),
+                note: 'App event integration is in development.',
+                input: context.trigger.payload || {}
+            };
+
+        case 'form_submission':
+            return {
+                status: 'triggered',
+                trigger_type: 'form_submission',
+                timestamp: new Date().toISOString(),
+                form_data: context.trigger.payload || {},
+                note: 'Form submission received.'
+            };
+
+        case 'sub_workflow_trigger':
+            return {
+                status: 'triggered',
+                trigger_type: 'sub_workflow',
+                timestamp: new Date().toISOString(),
+                caller_payload: context.trigger.payload || {},
+                note: 'Triggered by a parent workflow.'
+            };
+
+        case 'chat_message': {
+            const message = context.trigger.payload?.message || context.trigger.payload?.text || '';
+            return {
+                status: 'triggered',
+                trigger_type: 'chat_message',
+                timestamp: new Date().toISOString(),
+                message,
+                input: context.trigger.payload || {}
+            };
+        }
+
+        case 'other_ways':
+            return {
+                status: 'triggered',
+                trigger_type: 'custom',
+                timestamp: new Date().toISOString(),
+                input: context.trigger.payload || {},
+                note: 'Custom trigger activated.'
             };
 
         case 'http_request':
@@ -71,19 +139,38 @@ export const executeAction = async (action, context) => {
 
         case 'ai_model':
             const provider = action.config?.provider || 'google';
-            const apiKey = action.config?.api_key || (provider === 'google' ? process.env.OPEN_API_KEY : process.env.OPENAI_API_KEY);
-            const modelName = action.config?.model || (provider === 'google' ? 'gemini-flash-latest' : 'gpt-4o');
-            let promptTemplate = action.config?.prompt || 'Summarize this: {{input}}';
+            const apiKey = action.config?.api_key || (
+                provider === 'google'
+                    ? (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || (process.env.OPENAI_API_KEY?.startsWith('AIza') ? process.env.OPENAI_API_KEY : undefined))
+                    : process.env.OPENAI_API_KEY
+            );
+            let modelName = action.config?.model || (provider === 'google' ? 'gemini-1.5-flash' : 'gpt-4o');
+
+            if (provider === 'google' && modelName === 'gemini-1.5-pro') modelName = 'gemini-1.5-pro-latest';
+
+            let promptTemplate = action.config?.prompt || '{{text}}';
+            const systemPrompt = action.config?.system_prompt || '';
 
             if (!apiKey) throw new Error(`API Key for ${provider} is missing. Please configure it in node properties.`);
 
-            // Replace {{input}} with stringified payload
-            const finalPrompt = promptTemplate.replace('{{input}}', JSON.stringify(context.trigger.payload));
+            let finalPrompt = promptTemplate;
+            // Replace individual fields first (e.g. {{text}})
+            if (context.trigger.payload) {
+                Object.entries(context.trigger.payload).forEach(([key, val]) => {
+                    const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                    finalPrompt = finalPrompt.replace(new RegExp(`{{${key}}}`, 'g'), strVal);
+                });
+            }
+            // Fallback for full object
+            finalPrompt = finalPrompt.replace(/{{input}}/g, JSON.stringify(context.trigger.payload));
 
             try {
                 if (provider === 'google') {
                     const genAI = new GoogleGenerativeAI(apiKey);
-                    const model = genAI.getGenerativeModel({ model: modelName });
+                    const model = genAI.getGenerativeModel({
+                        model: modelName,
+                        systemInstruction: systemPrompt
+                    });
                     const result = await model.generateContent(finalPrompt);
                     const response = await result.response;
                     return {
@@ -93,9 +180,13 @@ export const executeAction = async (action, context) => {
                     };
                 } else {
                     const openai = new OpenAI({ apiKey });
+                    const messages = [];
+                    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+                    messages.push({ role: 'user', content: finalPrompt });
+
                     const completion = await openai.chat.completions.create({
                         model: modelName,
-                        messages: [{ role: 'user', content: finalPrompt }],
+                        messages,
                         timeout: 10000
                     });
                     return {
@@ -107,7 +198,6 @@ export const executeAction = async (action, context) => {
             } catch (err) {
                 throw new Error(`${provider.toUpperCase()} AI Error: ${err.message}`);
             }
-
         case 'send_email':
             let activeTransporter;
             const smtpUser = action.config?.smtp_user;
@@ -266,6 +356,48 @@ export const executeAction = async (action, context) => {
                 evaluationStatus: 'success'
             };
 
+        case 'github_push':
+            const owner = action.config?.owner;
+            const repo = action.config?.repo;
+            const githubToken = action.config?.token;
+            const filePath = action.config?.path || 'output.json';
+            const commitMessage = action.config?.message || 'Update from Flowz';
+            let fileContent = action.config?.content || JSON.stringify(context.trigger.payload, null, 2);
+
+            if (!owner || !repo || !githubToken) {
+                throw new Error("Missing GitHub configuration (Owner, Repo, or Token)");
+            }
+
+            try {
+
+                let sha;
+                try {
+                    const getRes = await axios.get(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
+                        headers: { Authorization: `token ${githubToken}` }
+                    });
+                    sha = getRes.data.sha;
+                } catch (e) {
+
+                }
+
+                const pushRes = await axios.put(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
+                    message: commitMessage,
+                    content: Buffer.from(fileContent).toString('base64'),
+                    sha: sha
+                }, {
+                    headers: { Authorization: `token ${githubToken}` }
+                });
+
+                return {
+                    status: 'success',
+                    url: pushRes.data.content.html_url,
+                    sha: pushRes.data.content.sha,
+                    commit: pushRes.data.commit.sha
+                };
+            } catch (err) {
+                throw new Error(`GitHub Error: ${err.response?.data?.message || err.message}`);
+            }
+
         case 'log':
             const msg = action.config?.message || 'Standard Execution Log';
             console.log(`[USER LOG]: ${msg}`);
@@ -285,9 +417,14 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
 
     const nodeLogs = [];
     const visited = new Set();
+    const workflowStart = Date.now();
 
     // Find trigger
-    const triggerNode = nodes.find(n => n.data?.isTrigger || n.data?.type?.toLowerCase().includes('trigger'));
+    const triggerNode = nodes.find(n =>
+        n.data?.isTrigger ||
+        n.data?.type?.toLowerCase().includes('trigger') ||
+        ['app_event', 'form_submission', 'chat_message', 'other_ways'].includes(n.data?.type)
+    );
 
     if (!triggerNode) {
         console.error("[ENGINE] Execution error: No trigger node found.");
@@ -316,6 +453,12 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
                     config: currentNode.data.config || {}
                 };
 
+                // Snapshot inputs for the results panel
+                const inputSnapshot = {
+                    trigger_payload: context.trigger.payload,
+                    previous_results: { ...context.results }
+                };
+
                 const result = await executeAction(actionData, context);
                 context.results[currentNode.id] = result;
                 if (currentNode.data?.label) {
@@ -327,6 +470,7 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
                     nodeId: currentNode.id,
                     nodeType: currentNode.data.type,
                     status: 'success',
+                    input: inputSnapshot,
                     result,
                     duration: Date.now() - startTime
                 });
@@ -359,8 +503,8 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
                 throw new Error(`Node "${currentNode.data.label || currentNode.id}" failed: ${error.message}`);
             }
         }
-        return { status: 'success', nodeLogs };
+        return { status: 'success', nodeLogs, nodeResults: context.results, duration: Date.now() - workflowStart };
     } catch (error) {
-        return { status: 'failure', error: error.message, nodeLogs };
+        return { status: 'failure', error: error.message, nodeLogs, nodeResults: context.results, duration: Date.now() - workflowStart };
     }
 };
