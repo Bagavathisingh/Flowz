@@ -8,21 +8,17 @@ import { registerChatTrigger, sendChatMessage, getChatHistory, addBotMessage } f
 
 const router = express.Router();
 
-// Request Logger for Debugging
 router.use((req, res, next) => {
     console.log(`[API] ${req.method} ${req.url}`);
     next();
 });
 
-// Test route
 router.get('/trigger/test', (req, res) => res.json({ message: 'Trigger routes are active' }));
 
-// ─── AI Routes ───────────────────────────────────────────────────────────────
 router.post('/ai/generate-workflow', generateWorkflowConfig);
 router.post('/ai/modify-workflow', modifyWorkflowConfig);
 router.post('/ai/explain-error', explainErrorLog);
 
-// ─── Workflow Test Execution ──────────────────────────────────────────────────
 router.post('/workflows/:id/execute', async (req, res) => {
     try {
         const { nodes, edges, payload } = req.body;
@@ -34,7 +30,6 @@ router.post('/workflows/:id/execute', async (req, res) => {
     }
 });
 
-// ─── Workflow CRUD ────────────────────────────────────────────────────────────
 router.get('/workflows', async (req, res) => {
     try {
         const workflows = await Workflow.find().sort({ createdAt: -1 });
@@ -49,7 +44,6 @@ router.post('/workflows', async (req, res) => {
         const { name, nodes, edges } = req.body;
         const saved = await new Workflow({ name, nodes, edges }).save();
 
-        // Auto-register schedule triggers when a workflow is saved
         const scheduleTrigger = nodes?.find(n => n.data?.type === 'schedule_trigger');
         if (scheduleTrigger && scheduleTrigger.data?.config?.interval) {
             const cronExpr = intervalToCron(scheduleTrigger.data.config.interval);
@@ -63,7 +57,6 @@ router.post('/workflows', async (req, res) => {
             });
         }
 
-        // Auto-register chat trigger
         const chatTrigger = nodes?.find(n => n.data?.type === 'chat_message');
         if (chatTrigger) {
             registerChatTrigger(saved._id.toString(), async (ctx) => {
@@ -95,8 +88,6 @@ router.delete('/workflows/:id', async (req, res) => {
     }
 });
 
-// ─── TRIGGER 1: Webhook ───────────────────────────────────────────────────────
-// External systems POST to this URL to trigger a workflow
 router.post('/trigger/webhook/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
@@ -110,7 +101,6 @@ router.post('/trigger/webhook/:workflowId', async (req, res) => {
     }
 });
 
-// Get webhook URL info for a workflow
 router.get('/trigger/webhook/:workflowId/info', async (req, res) => {
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
     res.json({
@@ -120,7 +110,6 @@ router.get('/trigger/webhook/:workflowId/info', async (req, res) => {
     });
 });
 
-// ─── TRIGGER 2: Manual ───────────────────────────────────────────────────────
 router.post('/trigger/manual/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
@@ -132,10 +121,9 @@ router.post('/trigger/manual/:workflowId', async (req, res) => {
     }
 });
 
-// ─── TRIGGER 3: Schedule (manual re-register) ─────────────────────────────────
 router.post('/trigger/schedule/:workflowId', async (req, res) => {
     try {
-        const { interval } = req.body; // interval in seconds
+        const { interval } = req.body;
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
 
@@ -155,8 +143,6 @@ router.delete('/trigger/schedule/:workflowId', (req, res) => {
     res.json({ success: true, message: 'Schedule stopped.' });
 });
 
-// ─── TRIGGER 4: Form Submission ───────────────────────────────────────────────
-// A public POST endpoint that acts as a form receiver
 router.post('/trigger/form/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
@@ -171,7 +157,6 @@ router.post('/trigger/form/:workflowId', async (req, res) => {
     }
 });
 
-// Get form metadata / submission URL
 router.get('/trigger/form/:workflowId/info', async (req, res) => {
     const wf = await Workflow.findById(req.params.workflowId);
     if (!wf) return res.status(404).json({ error: 'Workflow not found' });
@@ -189,7 +174,6 @@ router.get('/trigger/form/:workflowId/info', async (req, res) => {
     });
 });
 
-// ─── TRIGGER 5: Sub-Workflow ──────────────────────────────────────────────────
 router.post('/trigger/sub-workflow/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
@@ -202,8 +186,6 @@ router.post('/trigger/sub-workflow/:workflowId', async (req, res) => {
     }
 });
 
-// ─── TRIGGER 6: Chat Message ──────────────────────────────────────────────────
-// POST a chat message to trigger the workflow
 router.post('/trigger/chat/:workflowId', async (req, res) => {
     try {
         const { message } = req.body;
@@ -212,7 +194,6 @@ router.post('/trigger/chat/:workflowId', async (req, res) => {
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
 
-        // Register callback if not already
         if (!getChatHistory(req.params.workflowId).length) {
             registerChatTrigger(req.params.workflowId, async (ctx) => {
                 try {
@@ -228,7 +209,6 @@ router.post('/trigger/chat/:workflowId', async (req, res) => {
 
         sendChatMessage(req.params.workflowId, message, 'user');
 
-        // Wait briefly for async bot reply
         await new Promise(r => setTimeout(r, 1500));
         const history = getChatHistory(req.params.workflowId);
         const lastEntry = history[history.length - 1];
@@ -239,19 +219,15 @@ router.post('/trigger/chat/:workflowId', async (req, res) => {
     }
 });
 
-// GET chat history
 router.get('/trigger/chat/:workflowId/history', (req, res) => {
     res.json({ history: getChatHistory(req.params.workflowId) });
 });
 
-// ─── TRIGGER 7: App Event (Telegram) ─────────────────────────────────────────
-// Telegram sends updates to this webhook endpoint
 router.post('/trigger/app-event/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
 
-        // Normalise Telegram / generic app event payload
         const telegramMsg = req.body?.message;
         const payload = {
             source: 'app_event',
@@ -261,20 +237,16 @@ router.post('/trigger/app-event/:workflowId', async (req, res) => {
             chat_id: telegramMsg?.chat?.id || null,
         };
 
-        // Respond 'ok' to Telegram immediately to prevent timeout/502
         res.json({ ok: true });
 
-        // Run workflow in background
         (async () => {
             try {
                 const result = await runWorkflow(wf.nodes, wf.edges, payload);
 
-                // If bot reply is needed, call Telegram sendMessage
                 const appTrigger = wf.nodes?.find(n => n.data?.type === 'app_event');
                 const botToken = appTrigger?.data?.config?.telegram_token;
                 const chatId = payload.chat_id || appTrigger?.data?.config?.chat_id;
 
-                // Find a meaningful reply: Prefer AI Model output, then fall back to the last node
                 let reply;
                 const aiNode = wf.nodes.find(n => n.data?.type === 'ai_model');
                 if (aiNode && result.nodeResults[aiNode.id]) {
