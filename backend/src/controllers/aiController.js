@@ -1,18 +1,74 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import dotenv from 'dotenv';
 dotenv.config();
-
-const genAI = new GoogleGenerativeAI(process.env.OPENAI_API_KEY || '');
 
 const cleanJson = (text) => {
     return text.replace(/```json/g, '').replace(/```/g, '').trim();
 };
 
+const WORKFLOW_SYSTEM_PROMPT = `You are an advanced workflow architect generator like n8n. 
+Convert user text into a structured JSON Directed Acyclic Graph (DAG).
+
+Allowed Node Types & Config Schemas:
+- webhook_trigger: { "method": "GET"|"POST" }
+- schedule_trigger: { "cron": "string" }
+- app_event: { "telegram_token": "string" }
+- http_request: { "url": "string", "method": "GET"|"POST"|"PUT"|"DELETE" }
+- send_email: { "to": "email", "subject": "string" }
+- delay: { "duration_minutes": number }
+- save_to_database: { "collection": "string" }
+- ai_model: { "provider": "google"|"openai"|"anthropic", "model": "string", "prompt": "Instruction with {{input}}", "system_prompt": "optional persona" }
+- ifElse: { "condition": "javascript_expression_using_payload" }
+- log: { "message": "string" }
+
+Nodes must contain: id, type, data: { label, type, config }.
+Labels should be concise and human-friendly.
+Edges must contain: id, source, target.
+For ifElse connections, use sourceHandle "true" or "false".
+
+Return ONLY valid JSON.
+Format: { "nodes": [...], "edges": [...] }`;
+
+const callAI = async (provider, model, prompt, systemPrompt) => {
+    if (provider === 'google') {
+        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const m = genAI.getGenerativeModel({ model, systemInstruction: systemPrompt });
+        const result = await m.generateContent(prompt);
+        return result.response.text();
+    } else if (provider === 'anthropic') {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        const claude = new Anthropic({ apiKey });
+        const msg = await claude.messages.create({
+            model,
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: prompt }]
+        });
+        return msg.content[0]?.text || '';
+    } else {
+        // OpenAI
+        const apiKey = process.env.OPENAI_API_KEY;
+        const openai = new OpenAI({ apiKey });
+        const completion = await openai.chat.completions.create({
+            model,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: prompt }
+            ]
+        });
+        return completion.choices[0].message.content;
+    }
+};
+
 export const generateWorkflowConfig = async (req, res) => {
     try {
-        const { prompt } = req.body;
+        const { prompt, provider = 'google', model = 'gemini-1.5-flash-latest' } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
+        // Check if raw JSON was pasted
         try {
             const rawJsonFallback = JSON.parse(prompt);
             if (rawJsonFallback && (rawJsonFallback.nodes || rawJsonFallback.trigger)) {
@@ -20,72 +76,40 @@ export const generateWorkflowConfig = async (req, res) => {
             }
         } catch (e) { }
 
-        // Using gemini-flash-latest which was confirmed in your models list
-        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+        console.log(`[AI GENERATOR] Provider: ${provider}, Model: ${model}`);
 
-        const systemPrompt = `You are an advanced workflow architect generator like n8n. 
-        Convert user text into a structured JSON Directed Acyclic Graph (DAG).
-        
-        Allowed Node Types & Config Schemas:
-        - webhook_trigger: { "method": "GET"|"POST" }
-        - schedule_trigger: { "cron": "string" }
-        - http_request: { "url": "string", "method": "GET"|"POST"|"PUT"|"DELETE" }
-        - send_email: { "to": "email", "subject": "string" }
-        - delay: { "duration_minutes": number }
-        - save_to_database: { "collection": "string" }
-        - ai_model: { "provider": "google"|"openai", "model": "string", "prompt": "Instruction with {{input}}" }
-        - ifElse: { "condition": "javascript_expression_using_payload" } (e.g. "payload.age > 18")
-        - log: { "message": "string" }
-
-        Nodes must contain: id, type, data: { label, config }. Labels should be concise.
-        Edges must contain: id, source, target, sourceHandle (for ifElse connections, use "true" or "false").
-        
-        Return ONLY valid JSON.
-        Format: { "nodes": [...], "edges": [...] }`;
-
-        const result = await model.generateContent([
-            { text: systemPrompt },
-            { text: `User request: ${prompt}` }
-        ]);
-
-        const text = result.response.text();
+        const text = await callAI(provider, model, `User request: ${prompt}`, WORKFLOW_SYSTEM_PROMPT);
         const flowJson = JSON.parse(cleanJson(text));
         return res.json(flowJson);
 
     } catch (error) {
-        console.error("Gemini Error:", error);
+        console.error('Workflow Generation Error:', error.message);
 
         if (error.status === 429) {
-            return res.status(429).json({
-                error: "AI Quota Exceeded. Please wait a minute and try again."
-            });
+            return res.status(429).json({ error: 'AI Quota Exceeded. Please wait a minute and try again.' });
         }
 
         return res.json({
             nodes: [
-                { id: "node_trigger", type: "webhook_trigger", data: { label: "Incoming Webhook", config: { method: "POST" } } },
-                { id: "node_success", type: "http_request", data: { label: "Notify", config: { url: "https://api.example.com" } } }
+                { id: 'node_trigger', type: 'webhook_trigger', data: { label: 'Incoming Webhook', type: 'webhook_trigger', config: { method: 'POST' } } },
+                { id: 'node_success', type: 'http_request', data: { label: 'Notify', type: 'http_request', config: { url: 'https://api.example.com' } } }
             ],
-            edges: [
-                { id: "e1", source: "node_trigger", target: "node_success" }
-            ]
+            edges: [{ id: 'e1', source: 'node_trigger', target: 'node_success' }]
         });
     }
 };
 
 export const explainErrorLog = async (req, res) => {
     try {
-        const { logs, error } = req.body;
-        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-
+        const { logs, error, provider = 'google', model = 'gemini-1.5-flash-latest' } = req.body;
         const prompt = `You explain automation execution errors. Given the logs and error message, output JSON with 'explanation', 'cause', and 'fix' keys.
-        Logs: ${JSON.stringify(logs)}
-        Error: ${error}
-        
-        IMPORTANT: Return ONLY the JSON object.`;
+Logs: ${JSON.stringify(logs)}
+Error: ${error}
 
-        const result = await model.generateContent(prompt);
-        res.json(JSON.parse(cleanJson(result.response.text())));
+IMPORTANT: Return ONLY the JSON object.`;
+
+        const text = await callAI(provider, model, prompt, 'You are an expert automation debugger. Always respond with valid JSON only.');
+        res.json(JSON.parse(cleanJson(text)));
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -93,52 +117,27 @@ export const explainErrorLog = async (req, res) => {
 
 export const modifyWorkflowConfig = async (req, res) => {
     try {
-        const { currentWorkflow, prompt } = req.body;
+        const { currentWorkflow, prompt, provider = 'google', model = 'gemini-1.5-flash-latest' } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+        console.log(`[AI MODIFIER] Provider: ${provider}, Model: ${model}`);
 
-        const systemPrompt = `You are a professional workflow architect. 
-        Modify the provided workflow (nodes and edges) based on the user's instructions.
-        
-        Keep existing node IDs where possible.
-        Ensure logic remains sound and connections are valid.
-        
-        Allowed Node Types & Config Schemas:
-        - webhook_trigger: { "method": "GET"|"POST" }
-        - schedule_trigger: { "cron": "string" }
-        - http_request: { "url": "string", "method": "GET"|"POST"|"PUT"|"DELETE" }
-        - send_email: { "to": "email", "subject": "string" }
-        - delay: { "duration_seconds": number }
-        - save_to_database: { "collection": "string" }
-        - ai_model: { "provider": "google"|"openai", "model": "string", "prompt": "Instruction with {{input}}" }
-        - ifElse: { "condition": "javascript_expression_using_payload" }
-        - log: { "message": "string" }
+        const systemPrompt = `${WORKFLOW_SYSTEM_PROMPT}
 
-        Current Workflow:
-        ${JSON.stringify(currentWorkflow, null, 2)}
-        
-        Return ONLY valid JSON.
-        Format: { "nodes": [...], "edges": [...] }`;
+You are modifying an existing workflow. Keep existing node IDs where possible.
+Current Workflow:
+${JSON.stringify(currentWorkflow, null, 2)}`;
 
-        const result = await model.generateContent([
-            { text: systemPrompt },
-            { text: `User instruction to modify the workflow: ${prompt}` }
-        ]);
-
-        const text = result.response.text();
+        const text = await callAI(provider, model, `User instruction to modify the workflow: ${prompt}`, systemPrompt);
         const flowJson = JSON.parse(cleanJson(text));
         return res.json(flowJson);
 
     } catch (error) {
-        console.error("AI Modification Error:", error);
+        console.error('AI Modification Error:', error.message);
 
         if (error.status === 429) {
-            return res.status(429).json({
-                error: "AI Quota Exceeded. You have reached the daily limit for the free tier. Please wait a bit or try again later."
-            });
+            return res.status(429).json({ error: 'AI Quota Exceeded. Please wait a bit and try again.' });
         }
-
         res.status(500).json({ error: error.message });
     }
 };

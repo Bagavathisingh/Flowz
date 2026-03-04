@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import { MongoClient } from 'mongodb';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import Anthropic from '@anthropic-ai/sdk';
 
 // Setup email transporter (using Ethereal for "real" but free testing)
 let transporter;
@@ -27,6 +28,9 @@ const setupEmail = async () => {
 };
 
 const dbConnections = new Map();
+const aiClientCache = new Map();
+const googleAIClientCache = new Map();
+const anthropicClientCache = new Map();
 
 const getExternalDb = async (connectionString) => {
     if (dbConnections.has(connectionString)) {
@@ -141,12 +145,18 @@ export const executeAction = async (action, context) => {
             const provider = action.config?.provider || 'google';
             const apiKey = action.config?.api_key || (
                 provider === 'google'
-                    ? (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || (process.env.OPENAI_API_KEY?.startsWith('AIza') ? process.env.OPENAI_API_KEY : undefined))
-                    : process.env.OPENAI_API_KEY
+                    ? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || (process.env.OPENAI_API_KEY?.startsWith('AIza') ? process.env.OPENAI_API_KEY : undefined))
+                    : provider === 'anthropic'
+                        ? process.env.ANTHROPIC_API_KEY
+                        : process.env.OPENAI_API_KEY
             );
-            let modelName = action.config?.model || (provider === 'google' ? 'gemini-1.5-flash' : 'gpt-4o');
+            let modelName = action.config?.model || (
+                provider === 'google' ? 'gemini-1.5-flash-latest' :
+                    provider === 'anthropic' ? 'claude-3-5-sonnet-20241022' :
+                        'gpt-4o'
+            );
 
-            if (provider === 'google' && modelName === 'gemini-1.5-pro') modelName = 'gemini-1.5-pro-latest';
+            console.log(`[AI EXECUTION] Provider: ${provider}, Model: ${modelName}, Using Key: ${apiKey ? (apiKey.substring(0, 7) + '...') : 'MISSING'}`);
 
             let promptTemplate = action.config?.prompt || '{{text}}';
             const systemPrompt = action.config?.system_prompt || '';
@@ -166,7 +176,10 @@ export const executeAction = async (action, context) => {
 
             try {
                 if (provider === 'google') {
-                    const genAI = new GoogleGenerativeAI(apiKey);
+                    if (!googleAIClientCache.has(apiKey)) {
+                        googleAIClientCache.set(apiKey, new GoogleGenerativeAI(apiKey));
+                    }
+                    const genAI = googleAIClientCache.get(apiKey);
                     const model = genAI.getGenerativeModel({
                         model: modelName,
                         systemInstruction: systemPrompt
@@ -178,8 +191,27 @@ export const executeAction = async (action, context) => {
                         model: modelName,
                         output: response.text()
                     };
+                } else if (provider === 'anthropic') {
+                    if (!anthropicClientCache.has(apiKey)) {
+                        anthropicClientCache.set(apiKey, new Anthropic({ apiKey }));
+                    }
+                    const claude = anthropicClientCache.get(apiKey);
+                    const msg = await claude.messages.create({
+                        model: modelName,
+                        max_tokens: 2048,
+                        system: systemPrompt || undefined,
+                        messages: [{ role: 'user', content: finalPrompt }]
+                    });
+                    return {
+                        provider: 'Anthropic Claude',
+                        model: modelName,
+                        output: msg.content[0]?.text || ''
+                    };
                 } else {
-                    const openai = new OpenAI({ apiKey });
+                    if (!aiClientCache.has(apiKey)) {
+                        aiClientCache.set(apiKey, new OpenAI({ apiKey }));
+                    }
+                    const openai = aiClientCache.get(apiKey);
                     const messages = [];
                     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
                     messages.push({ role: 'user', content: finalPrompt });
@@ -196,7 +228,14 @@ export const executeAction = async (action, context) => {
                     };
                 }
             } catch (err) {
-                throw new Error(`${provider.toUpperCase()} AI Error: ${err.message}`);
+                let errorMsg = err.message;
+                if (errorMsg.includes('503') || errorMsg.includes('high demand')) {
+                    errorMsg += ". TIP: This is a temporary Google server issue. Try again in a few seconds, or try changing the Model Name to 'gemini-1.5-flash'.";
+                }
+                if (errorMsg.includes('404') && provider === 'google') {
+                    errorMsg += `. TIP: The model name '${modelName}' was not found. Try adding '-latest' to it (e.g. '${modelName}-latest') in the node properties.`;
+                }
+                throw new Error(`${provider.toUpperCase()} AI Error: ${errorMsg}`);
             }
         case 'send_email':
             let activeTransporter;
@@ -472,7 +511,8 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
                     status: 'success',
                     input: inputSnapshot,
                     result,
-                    duration: Date.now() - startTime
+                    duration: Date.now() - startTime,
+                    timestamp: new Date().toISOString()
                 });
 
                 // Get outgoing edges
@@ -498,7 +538,8 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
                     nodeType: currentNode.data.type,
                     status: 'failure',
                     error: error.message,
-                    duration: Date.now() - startTime
+                    duration: Date.now() - startTime,
+                    timestamp: new Date().toISOString()
                 });
                 throw new Error(`Node "${currentNode.data.label || currentNode.id}" failed: ${error.message}`);
             }

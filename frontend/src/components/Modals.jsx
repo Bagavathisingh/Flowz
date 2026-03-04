@@ -1,16 +1,16 @@
-import { Sparkles, Save, History, X, Code, Check, Trash2, Copy, Github, Eye, EyeOff } from 'lucide-react';
+import { Sparkles, Save, History, X, Code, Check, Trash2, Copy } from 'lucide-react';
 import { useState } from 'react';
 
 export default function Modals({
+    apiUrl,
     showAiModal, setShowAiModal, aiPrompt, setAiPrompt, isGenerating, generateWorkflow, modifyWorkflow,
+    aiGenerationModel, setAiGenerationModel,
     generatedJsonResult, applyGeneratedWorkflow, setGeneratedJsonResult,
     showSaveModal, setShowSaveModal, workflowName, setWorkflowName, isSaving, saveWorkflow,
-    showHistoryModal, setShowHistoryModal, isLoadingHistory, workflowHistory, loadWorkflow, deleteWorkflow,
-    showGithubModal, setShowGithubModal, githubConfig, setGithubConfig, pushWorkflowToGithub
+    showHistoryModal, setShowHistoryModal, isLoadingHistory, workflowHistory, loadWorkflow, deleteWorkflow
 }) {
     const [copyStatus, setCopyStatus] = useState(null);
-    const [aiMode, setAiMode] = useState('create'); // 'create' or 'modify'
-    const [showGithubToken, setShowGithubToken] = useState(false);
+    const [aiMode, setAiMode] = useState('create');
 
     const handleCopyJson = (wf) => {
         navigator.clipboard.writeText(JSON.stringify(wf, null, 2));
@@ -48,6 +48,36 @@ export default function Modals({
                                     >
                                         Modify Current
                                     </button>
+                                </div>
+
+                                <div className="flex items-center gap-2 mb-4 p-3 rounded-xl bg-black/30 border border-white/5">
+                                    <span className="text-[0.72rem] text-slate-500 font-bold uppercase tracking-widest whitespace-nowrap">AI Model</span>
+                                    <select
+                                        className="flex-1 bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-white text-[0.8rem] outline-none transition-all focus:border-purple-400"
+                                        value={aiGenerationModel.provider}
+                                        disabled={isGenerating}
+                                        onChange={(e) => {
+                                            const p = e.target.value;
+                                            const defaults = {
+                                                google: 'gemini-1.5-flash-latest',
+                                                anthropic: 'claude-3-5-sonnet-20241022',
+                                                openai: 'gpt-4o'
+                                            };
+                                            setAiGenerationModel({ provider: p, model: defaults[p] });
+                                        }}
+                                    >
+                                        <option value="google"> Google Gemini</option>
+                                        <option value="anthropic"> Anthropic Claude</option>
+                                        <option value="openai"> OpenAI GPT</option>
+                                    </select>
+                                    <input
+                                        type="text"
+                                        className="w-[200px] bg-black/30 border border-white/10 rounded-lg px-3 py-1.5 text-slate-300 text-[0.8rem] outline-none focus:border-purple-400 font-mono"
+                                        placeholder="model name"
+                                        value={aiGenerationModel.model}
+                                        disabled={isGenerating}
+                                        onChange={(e) => setAiGenerationModel(prev => ({ ...prev, model: e.target.value }))}
+                                    />
                                 </div>
 
                                 <textarea
@@ -213,91 +243,6 @@ export default function Modals({
                                     </div>
                                 ))
                             )}
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* Push to GitHub Modal */}
-            {showGithubModal && (
-                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 animate-[fadeIn_0.2s_ease]">
-                    <div className="bg-slate-900 border border-white/10 rounded-2xl p-8 w-[560px] max-w-[90vw] shadow-[0_24px_64px_rgba(0,0,0,0.6)] animate-[slideUp_0.3s_cubic-bezier(0.16,1,0.3,1)]">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="flex items-center gap-3 text-2xl font-semibold text-white m-0">
-                                <Github size={24} className="text-slate-200" /> Push Workflow to GitHub
-                            </h3>
-                            <button className="bg-transparent border-none text-slate-400 hover:text-white p-1 rounded" onClick={() => setShowGithubModal(false)}>
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="flex flex-col gap-4 overflow-y-auto max-h-[60vh] pr-2 custom-scrollbar">
-                            <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium text-slate-400">Repository Owner</label>
-                                <input
-                                    type="text"
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                    placeholder="e.g. Bagavathisingh"
-                                    value={githubConfig.owner}
-                                    onChange={(e) => setGithubConfig({ ...githubConfig, owner: e.target.value })}
-                                />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium text-slate-400">Repository Name</label>
-                                <input
-                                    type="text"
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                    placeholder="e.g. Flowz"
-                                    value={githubConfig.repo}
-                                    onChange={(e) => setGithubConfig({ ...githubConfig, repo: e.target.value })}
-                                />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium text-slate-400">Personal Access Token</label>
-                                <div className="relative">
-                                    <input
-                                        type={showGithubToken ? "text" : "password"}
-                                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 pr-10 text-white transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                        placeholder="ghp_..."
-                                        value={githubConfig.token}
-                                        onChange={(e) => setGithubConfig({ ...githubConfig, token: e.target.value })}
-                                    />
-                                    <button
-                                        onClick={() => setShowGithubToken(!showGithubToken)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none p-0 text-slate-500 hover:text-white cursor-pointer transition-colors"
-                                    >
-                                        {showGithubToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium text-slate-400">File Path</label>
-                                <input
-                                    type="text"
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                    placeholder="e.g. workflows/main.json"
-                                    value={githubConfig.path}
-                                    onChange={(e) => setGithubConfig({ ...githubConfig, path: e.target.value })}
-                                />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium text-slate-400">Commit Message</label>
-                                <input
-                                    type="text"
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                    placeholder="Update workflow"
-                                    value={githubConfig.message}
-                                    onChange={(e) => setGithubConfig({ ...githubConfig, message: e.target.value })}
-                                />
-                            </div>
-                        </div>
-                        <div className="flex justify-end gap-4 mt-8">
-                            <button
-                                className="bg-transparent border border-white/10 text-slate-400 px-6 py-3 rounded-lg hover:border-white/30 hover:text-white hover:bg-white/5 disabled:opacity-50 transition-all font-medium"
-                                onClick={() => setShowGithubModal(false)} disabled={isSaving}>Cancel</button>
-                            <button
-                                className="bg-slate-200 hover:bg-white border-none text-slate-900 px-6 py-3 rounded-lg font-bold shadow-[0_4px_14px_rgba(255,255,255,0.1)] disabled:opacity-50 hover:shadow-[0_6px_20px_rgba(255,255,255,0.2)] hover:-translate-y-[1px] transition-all disabled:cursor-not-allowed flex items-center gap-2"
-                                onClick={pushWorkflowToGithub} disabled={isSaving || !githubConfig.owner || !githubConfig.repo || !githubConfig.token}>
-                                {isSaving ? 'Pushing...' : 'Push to GitHub'}
-                            </button>
                         </div>
                     </div>
                 </div>

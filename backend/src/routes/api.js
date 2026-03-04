@@ -247,25 +247,85 @@ router.post('/trigger/app-event/:workflowId', async (req, res) => {
                 const botToken = appTrigger?.data?.config?.telegram_token;
                 const chatId = payload.chat_id || appTrigger?.data?.config?.chat_id;
 
-                let reply;
+                console.log(`[TELEGRAM] Workflow finished. Status: ${result.status}`);
+                console.log(`[TELEGRAM] nodeResults keys:`, Object.keys(result.nodeResults || {}));
+
+                let reply = null;
+
+                // 1. Check every node result for any text-like field (most-to-least specific)
+                const TEXT_FIELDS = ['output', 'response', 'result', 'message', 'text', 'logged'];
+                const allResults = Object.values(result.nodeResults || {});
+
+                // Prefer AI model node output first
                 const aiNode = wf.nodes.find(n => n.data?.type === 'ai_model');
                 if (aiNode && result.nodeResults[aiNode.id]) {
-                    reply = result.nodeResults[aiNode.id].output;
-                } else {
-                    const lastOutput = Object.values(result.nodeResults || {}).pop();
-                    reply = lastOutput?.response || lastOutput?.output || lastOutput?.result;
+                    const aiOut = result.nodeResults[aiNode.id];
+                    reply = aiOut.output || aiOut.response || aiOut.result || null;
+                    console.log(`[TELEGRAM] AI node output found:`, reply ? reply.substring(0, 60) + '...' : 'null');
+                }
+
+                // If still no reply, scan ALL node results in reverse order (last node first)
+                if (!reply) {
+                    for (const nodeResult of [...allResults].reverse()) {
+                        for (const field of TEXT_FIELDS) {
+                            const val = nodeResult?.[field];
+                            if (val && typeof val === 'string' && val.trim().length > 0) {
+                                reply = val;
+                                console.log(`[TELEGRAM] Found reply in field "${field}":`, reply.substring(0, 60));
+                                break;
+                            }
+                        }
+                        if (reply) break;
+
+                        // Stringify non-null object results as last resort
+                        if (nodeResult && typeof nodeResult === 'object') {
+                            const clean = Object.fromEntries(
+                                Object.entries(nodeResult).filter(([k]) => !k.startsWith('_'))
+                            );
+                            if (Object.keys(clean).length > 0) {
+                                reply = JSON.stringify(clean);
+                                console.log(`[TELEGRAM] Using JSON stringified result as reply`);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // 2. Fall back to static reply_message configured on the app_event node
+                if (!reply) {
+                    reply = appTrigger?.data?.config?.reply_message || null;
+                    if (reply) console.log(`[TELEGRAM] Using static reply_message from node config`);
+                }
+
+                // 3. Last resort: echo the user's own message back
+                if (!reply && payload.text) {
+                    reply = `Received: "${payload.text}" — workflow ran successfully (${result.status}).`;
+                    console.log(`[TELEGRAM] Using echo fallback`);
                 }
 
                 if (botToken && chatId && reply) {
                     console.log(`[TELEGRAM] Sending reply to chat ${chatId}...`);
                     await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
                         chat_id: chatId,
-                        text: typeof reply === 'string' ? reply : JSON.stringify(reply)
+                        text: typeof reply === 'string' ? reply : JSON.stringify(reply),
+                        parse_mode: 'Markdown'
+                    }).then(() => {
+                        console.log(`[TELEGRAM] Message sent successfully to chat ${chatId}`);
                     }).catch(err => {
-                        console.error('[TELEGRAM] Error sending message:', err.response?.data || err.message);
+                        // Markdown parse failed — retry as plain text
+                        console.warn(`[TELEGRAM] Markdown send failed, retrying as plain text...`);
+                        return axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                            chat_id: chatId,
+                            text: typeof reply === 'string' ? reply : JSON.stringify(reply)
+                        }).catch(err2 => {
+                            console.error('[TELEGRAM] Error sending message:', err2.response?.data || err2.message);
+                        });
                     });
                 } else {
                     console.warn(`[TELEGRAM] No reply sent: token=${!!botToken}, chat=${!!chatId}, reply=${!!reply}`);
+                    if (!botToken) console.warn(`[TELEGRAM] FIX: Set "telegram_token" in the App Event node config.`);
+                    if (!chatId) console.warn(`[TELEGRAM] FIX: chat_id was not found in the Telegram message payload. Make sure Telegram is sending updates correctly.`);
+                    if (!reply) console.warn(`[TELEGRAM] FIX: No text output was produced by any node. Add an AI Model node or set a static "reply_message" in the App Event node config.`);
                 }
             } catch (err) {
                 console.error('[TELEGRAM] Background workflow error:', err.message);
@@ -317,16 +377,52 @@ router.post('/trigger/error/:workflowId', async (req, res) => {
     }
 });
 
-// ─── GitHub Push ──────────────────────────────────────────────────────────────
+// ─── GitHub OAuth & Push ───────────────────────────────────────────────────────
+router.get('/auth/github', (req, res) => {
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    if (!clientId || clientId.includes('your_github_client_id')) {
+        return res.status(400).send('ERROR: GITHUB_CLIENT_ID is not configured in backend/.env. Please follow the instructions to create a GitHub OAuth App and update your .env file.');
+    }
+    const redirectUri = `${process.env.BASE_URL || 'http://localhost:5000'}/api/auth/github/callback`;
+    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=repo,workflow`;
+    res.redirect(githubAuthUrl);
+});
+
+router.get('/auth/github/callback', async (req, res) => {
+    const { code } = req.query;
+    try {
+        const response = await axios.post('https://github.com/login/oauth/access_token', {
+            client_id: process.env.GITHUB_CLIENT_ID,
+            client_secret: process.env.GITHUB_CLIENT_SECRET,
+            code
+        }, {
+            headers: { Accept: 'application/json' }
+        });
+
+        const accessToken = response.data.access_token;
+        // Redirect back to frontend with the token
+        // Assuming frontend is at localhost:5173 for dev
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        res.redirect(`${frontendUrl}?github_token=${accessToken}`);
+    } catch (error) {
+        console.error('[GITHUB OAUTH ERROR]', error.message);
+        res.status(500).send('Authentication failed');
+    }
+});
+
 router.post('/workflows/push-to-github', async (req, res) => {
     try {
         const { owner, repo, token, path, message, content } = req.body;
-        if (!owner || !repo || !token) return res.status(400).json({ error: 'Missing GitHub configuration' });
+        const finalToken = token || req.headers['x-github-token'];
+
+        if (!owner || !repo || !finalToken) {
+            return res.status(400).json({ error: 'Missing GitHub configuration (Owner, Repo, or Token)' });
+        }
 
         let sha;
         try {
             const getRes = await axios.get(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
-                headers: { Authorization: `token ${token}` }
+                headers: { Authorization: `token ${finalToken}` }
             });
             sha = getRes.data.sha;
         } catch (e) { /* File doesn't exist yet */ }
@@ -335,10 +431,11 @@ router.post('/workflows/push-to-github', async (req, res) => {
             message,
             content: Buffer.from(content).toString('base64'),
             sha
-        }, { headers: { Authorization: `token ${token}` } });
+        }, { headers: { Authorization: `token ${finalToken}` } });
 
         res.json({ success: true, url: pushRes.data.content.html_url });
     } catch (error) {
+        console.error('[GITHUB PUSH ERROR]', error.response?.data || error.message);
         res.status(500).json({ error: error.response?.data?.message || error.message });
     }
 });

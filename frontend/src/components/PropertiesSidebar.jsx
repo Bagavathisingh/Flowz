@@ -141,6 +141,7 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                                 >
                                     <option value="google">Google Gemini</option>
                                     <option value="openai">OpenAI</option>
+                                    <option value="anthropic">Anthropic Claude</option>
                                 </select>
                             </div>
                             <div className="flex flex-col gap-2">
@@ -167,7 +168,11 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                                 <input
                                     type="text"
                                     className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none"
-                                    placeholder={selectedNode.data.config?.provider === 'openai' ? "gpt-4o" : "gemini-1.5-flash"}
+                                    placeholder={
+                                        selectedNode.data.config?.provider === 'openai' ? 'gpt-4o' :
+                                            selectedNode.data.config?.provider === 'anthropic' ? 'claude-3-5-sonnet-20241022' :
+                                                'gemini-1.5-flash-latest'
+                                    }
                                     value={selectedNode.data.config?.model || ''}
                                     onChange={(e) => updateNodeConfig('model', e.target.value)}
                                 />
@@ -284,6 +289,18 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                             <div className="flex flex-col gap-2">
                                 <label className="text-[0.8rem] text-slate-400 font-medium">Default Chat ID (optional)</label>
                                 <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="e.g. -1001234567890" value={selectedNode.data.config?.chat_id || ''} onChange={(e) => updateNodeConfig('chat_id', e.target.value)} />
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[0.8rem] text-slate-400 font-medium">Fallback Reply Message (optional)</label>
+                                <textarea
+                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.85rem] h-[70px] resize-none outline-none focus:border-purple-500 transition-all"
+                                    placeholder="e.g. Got it! Your request is being processed..."
+                                    value={selectedNode.data.config?.reply_message || ''}
+                                    onChange={(e) => updateNodeConfig('reply_message', e.target.value)}
+                                />
+                                <span className="text-[0.7rem] text-slate-500 italic flex items-center gap-1">
+                                    <Info size={10} /> Sent to Telegram if no AI node produces output. Leave empty to auto-echo the user's message.
+                                </span>
                             </div>
                             <div className="p-3 rounded-lg bg-black/30 border border-white/5">
                                 <code className="text-[0.73rem] text-purple-200 font-mono break-all">POST /api/trigger/app-event/[workflow-id]</code>

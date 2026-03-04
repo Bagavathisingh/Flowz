@@ -25,7 +25,9 @@ import ExecutionPanel from './components/ExecutionPanel';
 import TestInputModal from './components/TestInputModal';
 import PublishModal from './components/PublishModal';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = window.location.hostname.includes('ngrok')
+  ? `${window.location.origin}/api`
+  : 'http://localhost:5000/api';
 
 let id = 10;
 const getId = () => `dndnode_${id++}`;
@@ -49,9 +51,8 @@ const BuilderCanvas = () => {
   const [workflowHistory, setWorkflowHistory] = useState([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [showGithubModal, setShowGithubModal] = useState(false);
+
   const [workflowName, setWorkflowName] = useState('');
-  const [githubConfig, setGithubConfig] = useState({ owner: '', repo: '', token: '', path: 'workflow.json', message: 'Update workflow from Flowz' });
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -59,6 +60,7 @@ const BuilderCanvas = () => {
   const [showExecutionPanel, setShowExecutionPanel] = useState(false);
   const [showTestInputModal, setShowTestInputModal] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
+  const [aiGenerationModel, setAiGenerationModel] = useState({ provider: 'google', model: 'gemini-1.5-flash-latest' });
 
   const reactFlowWrapper = useRef(null);
   const { screenToFlowPosition, setViewport } = useReactFlow();
@@ -193,7 +195,11 @@ const BuilderCanvas = () => {
     setIsGenerating(true);
     setGeneratedJsonResult(null);
     try {
-      const { data } = await axios.post(`${API_URL}/ai/generate-workflow`, { prompt: aiPrompt });
+      const { data } = await axios.post(`${API_URL}/ai/generate-workflow`, {
+        prompt: aiPrompt,
+        provider: aiGenerationModel.provider,
+        model: aiGenerationModel.model
+      });
       setGeneratedJsonResult(data);
       notify('success', 'Workflow architecture generated successfully.');
     } catch (error) {
@@ -211,7 +217,9 @@ const BuilderCanvas = () => {
     try {
       const { data } = await axios.post(`${API_URL}/ai/modify-workflow`, {
         currentWorkflow: { nodes, edges },
-        prompt: aiPrompt
+        prompt: aiPrompt,
+        provider: aiGenerationModel.provider,
+        model: aiGenerationModel.model
       });
       setGeneratedJsonResult(data);
       notify('success', 'Workflow modification suggested by AI.');
@@ -326,13 +334,13 @@ const BuilderCanvas = () => {
             ? { ...node, data: { ...node.data, executionStatus: 'loading' } }
             : node
         ));
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 150));
         setNodes(nds => nds.map(node =>
           node.id === log.nodeId
             ? { ...node, data: { ...node.data, executionStatus: log.status, executionResult: log.result || log.error } }
             : node
         ));
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 50));
       }
 
       if (res.data.status === 'failure') {
@@ -448,30 +456,7 @@ const BuilderCanvas = () => {
     }
   };
 
-  const pushWorkflowToGithub = async () => {
-    const { owner, repo, token, path, message } = githubConfig;
-    if (!owner || !repo || !token) {
-      return notify('error', 'Please provide Owner, Repo, and Token.');
-    }
-    setIsSaving(true);
-    try {
-      await axios.post(`${API_URL}/workflows/push-to-github`, {
-        owner,
-        repo,
-        token,
-        path,
-        message,
-        content: JSON.stringify({ nodes, edges }, null, 2)
-      });
-      setShowGithubModal(false);
-      notify('success', 'Workflow successfully pushed to GitHub!');
-    } catch (error) {
-      console.error('Failed to push to GitHub:', error);
-      notify('error', error.response?.data?.error || 'Error pushing to GitHub.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+
 
   return (
     <div className="flex h-screen w-screen bg-[#020617] text-slate-200 font-['Outfit'] overflow-hidden relative">
@@ -481,7 +466,6 @@ const BuilderCanvas = () => {
         <div className="relative z-30">
           <TopBar
             setShowSaveModal={setShowSaveModal}
-            setShowGithubModal={setShowGithubModal}
             openHistoryModal={openHistoryModal}
             setShowAiModal={setShowAiModal}
             handleTestRun={handleTestRun}
@@ -548,12 +532,13 @@ const BuilderCanvas = () => {
       )}
 
       <Modals
+        apiUrl={API_URL}
         showAiModal={showAiModal} setShowAiModal={setShowAiModal} aiPrompt={aiPrompt} setAiPrompt={setAiPrompt}
         isGenerating={isGenerating} generateWorkflow={generateWorkflow} modifyWorkflow={modifyWorkflow}
+        aiGenerationModel={aiGenerationModel} setAiGenerationModel={setAiGenerationModel}
         generatedJsonResult={generatedJsonResult} applyGeneratedWorkflow={applyGeneratedWorkflow} setGeneratedJsonResult={setGeneratedJsonResult}
         showSaveModal={showSaveModal} setShowSaveModal={setShowSaveModal} workflowName={workflowName} setWorkflowName={setWorkflowName} isSaving={isSaving} saveWorkflow={saveWorkflow}
         showHistoryModal={showHistoryModal} setShowHistoryModal={setShowHistoryModal} isLoadingHistory={isLoadingHistory} workflowHistory={workflowHistory} loadWorkflow={loadWorkflow} deleteWorkflow={deleteWorkflow}
-        showGithubModal={showGithubModal} setShowGithubModal={setShowGithubModal} githubConfig={githubConfig} setGithubConfig={setGithubConfig} pushWorkflowToGithub={pushWorkflowToGithub}
       />
 
       <ExecutionPanel

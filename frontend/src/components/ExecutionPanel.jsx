@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import {
     CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp,
     X, AlertTriangle, Copy, Check, Timer, GripHorizontal,
-    Maximize2, Minimize2, Rocket
+    Maximize2, Minimize2, Rocket, Terminal, Trash2
 } from 'lucide-react';
 
 const MIN_HEIGHT = 120;
@@ -224,7 +224,7 @@ export default function ExecutionPanel({ isOpen, onClose, executionResult, nodes
 
                 {/* Centre: Tabs */}
                 <div className="flex items-center gap-0.5 bg-black/30 p-1 rounded-xl border border-white/5">
-                    {[['nodes', 'Node Results'], ['output', 'Output'], ['summary', 'Summary']].map(([key, label]) => (
+                    {[['nodes', 'Node Results'], ['logs', 'Logs'], ['output', 'Output'], ['summary', 'Summary']].map(([key, label]) => (
                         <button key={key} onClick={() => setActiveTab(key)}
                             className={`px-3 py-1.5 rounded-lg text-[0.72rem] font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === key ? 'bg-white/15 text-white' : 'text-slate-500 hover:text-white'}`}
                             style={{ border: 'none', background: activeTab === key ? 'rgba(255,255,255,0.15)' : 'transparent' }}>
@@ -272,6 +272,74 @@ export default function ExecutionPanel({ isOpen, onClose, executionResult, nodes
                         {nodeLogs.map((log, i) => (
                             <NodeResultCard key={log.nodeId} log={log} index={i} nodeLabel={getNodeLabel(log.nodeId)} />
                         ))}
+                    </div>
+                )}
+
+                {/* Logs Tab (The "Terminal" console view) */}
+                {activeTab === 'logs' && (
+                    <div className="p-4 flex flex-col gap-1 font-mono text-[0.78rem]">
+                        <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/5">
+                            <span className="text-slate-500 font-bold uppercase tracking-widest text-[0.65rem] flex items-center gap-1.5">
+                                <Terminal size={12} /> Execution Logs
+                            </span>
+                            <span className="text-[0.65rem] text-slate-600 italic">showing logs for current run only</span>
+                        </div>
+
+                        {nodeLogs.length === 0 && (
+                            <div className="py-20 text-center text-slate-700">
+                                <Terminal size={32} className="mx-auto mb-3 opacity-10" />
+                                <p>No logs recorded for this run.</p>
+                            </div>
+                        )}
+
+                        {nodeLogs.map((log, i) => {
+                            const timeStr = log.timestamp
+                                ? new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                                : '00:00:00';
+                            const nodeLabel = getNodeLabel(log.nodeId);
+
+                            return (
+                                <div key={log.nodeId + '_log_' + i} className="flex flex-col gap-0.5 group">
+
+                                    <div className="flex items-start gap-3 py-0.5 group-hover:bg-white/[0.03] transition-colors rounded px-1">
+                                        <span className="text-slate-600 flex-shrink-0">[{timeStr}]</span>
+                                        <span className="text-blue-500 font-bold whitespace-nowrap min-w-[50px]">INFO</span>
+                                        <span className="text-slate-300">
+                                            Executing node <span className="text-white font-bold">{nodeLabel}</span>
+                                            <span className="text-slate-500 ml-2">({log.nodeId})</span>
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-start gap-3 py-0.5 group-hover:bg-white/[0.03] transition-colors rounded px-1">
+                                        <span className="text-slate-600 flex-shrink-0 opacity-0">[{timeStr}]</span> {/* align with above */}
+                                        {log.status === 'success' ? (
+                                            <>
+                                                <span className="text-emerald-500 font-bold whitespace-nowrap min-w-[50px]">SUCCESS</span>
+                                                <span className="text-emerald-400 opacity-80">
+                                                    Node completed in <span className="font-bold underline">{log.duration || 0}ms</span>.
+                                                    Output: <span className="italic">{typeof log.result === 'object' ? 'Object(JSON)' : String(log.result).substring(0, 50) + (String(log.result).length > 50 ? '...' : '')}</span>
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="text-red-500 font-bold whitespace-nowrap min-w-[50px]">ERROR</span>
+                                                <span className="text-red-400 opacity-80">
+                                                    Execution failed! {log.error || 'Unknown error'}
+                                                </span>
+                                            </>
+                                        )}
+                                    </div>
+                                    <div className="h-2" />
+                                </div>
+                            );
+                        })}
+
+                        {status && (
+                            <div className={`mt-2 p-3 rounded-lg border font-bold flex items-center gap-3 ${status === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                                {status === 'success' ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+                                Final workflow status: {status.toUpperCase()}
+                            </div>
+                        )}
                     </div>
                 )}
 
