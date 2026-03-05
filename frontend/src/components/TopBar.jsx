@@ -1,6 +1,6 @@
-import { Save, History, Sparkles, Play, Loader2, LayoutTemplate, Github, Plus } from 'lucide-react';
+import { Save, History, Sparkles, Play, Loader2, LayoutTemplate, Plus } from 'lucide-react';
 
-export default function TopBar({ setShowSaveModal, setShowGithubModal, openHistoryModal, setShowAiModal, handleTestRun, isExecuting, onLayout, setIsSidebarOpen, isSidebarOpen, hasNodes }) {
+export default function TopBar({ setShowSaveModal, openHistoryModal, setShowAiModal, handleTestRun, isExecuting, onLayout, setIsSidebarOpen, isSidebarOpen, hasNodes }) {
     return (
         <div className="absolute top-6 left-6 right-6 flex justify-between items-center z-10 pointer-events-none">
 
@@ -30,13 +30,6 @@ export default function TopBar({ setShowSaveModal, setShowGithubModal, openHisto
                     disabled={isExecuting}
                 >
                     <Save size={17} /> Save
-                </button>
-                <button
-                    className="bg-slate-800 hover:bg-slate-700 border-none text-white px-5 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-[0_4px_14px_rgba(0,0,0,0.3)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.4)] hover:-translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => setShowGithubModal(true)}
-                    disabled={isExecuting}
-                >
-                    <Github size={17} /> Push to GitHub
                 </button>
                 <button
                     className="bg-blue-500 hover:bg-blue-600 border-none text-white px-5 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-[0_4px_14px_rgba(59,130,246,0.3)] hover:shadow-[0_6px_20px_rgba(59,130,246,0.4)] hover:-translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed"

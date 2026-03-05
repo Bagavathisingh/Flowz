@@ -5,7 +5,6 @@ import { MongoClient } from 'mongodb';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Setup email transporter (using Ethereal for "real" but free testing)
 let transporter;
 const setupEmail = async () => {
     if (!transporter) {
@@ -27,6 +26,7 @@ const setupEmail = async () => {
 };
 
 const dbConnections = new Map();
+const smtpTransporters = new Map();
 
 const getExternalDb = async (connectionString) => {
     if (dbConnections.has(connectionString)) {
@@ -144,9 +144,8 @@ export const executeAction = async (action, context) => {
                     ? (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || (process.env.OPENAI_API_KEY?.startsWith('AIza') ? process.env.OPENAI_API_KEY : undefined))
                     : process.env.OPENAI_API_KEY
             );
-            let modelName = action.config?.model || (provider === 'google' ? 'gemini-1.5-flash' : 'gpt-4o');
-
-            if (provider === 'google' && modelName === 'gemini-1.5-pro') modelName = 'gemini-1.5-pro-latest';
+            let modelName = action.config?.model || (provider === 'google' ? 'gemini-3.1-flash-preview' : 'gpt-4o');
+            console.log(`[AI ENGINE] Node "${action.label}" - Provider: ${provider}, Model: ${modelName}`);
 
             let promptTemplate = action.config?.prompt || '{{text}}';
             const systemPrompt = action.config?.system_prompt || '';
@@ -154,15 +153,38 @@ export const executeAction = async (action, context) => {
             if (!apiKey) throw new Error(`API Key for ${provider} is missing. Please configure it in node properties.`);
 
             let finalPrompt = promptTemplate;
-            // Replace individual fields first (e.g. {{text}})
+            // Replace individual fields from trigger payload
             if (context.trigger.payload) {
                 Object.entries(context.trigger.payload).forEach(([key, val]) => {
                     const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
                     finalPrompt = finalPrompt.replace(new RegExp(`{{${key}}}`, 'g'), strVal);
                 });
             }
-            // Fallback for full object
+
+            // Replace previous node results (e.g. {{Node Label.output}})
+            if (context.results) {
+                Object.entries(context.results).forEach(([label, result]) => {
+                    const output = result.output || result.result || result;
+                    const strVal = typeof output === 'object' ? JSON.stringify(output) : String(output);
+
+                    // Match based on normalized label (underscores)
+                    // e.g. {{My_Node_Label}}
+                    finalPrompt = finalPrompt.replace(new RegExp(`{{${label}}}`, 'g'), strVal);
+                    finalPrompt = finalPrompt.replace(new RegExp(`{{${label}.output}}`, 'g'), strVal);
+
+                    // Match based on original label with spaces if it was normalized
+                    // e.g. {{My Node Label}}
+                    const originalLabel = label.replace(/_/g, ' ');
+                    if (originalLabel !== label) {
+                        finalPrompt = finalPrompt.replace(new RegExp(`{{${originalLabel}}}`, 'g'), strVal);
+                        finalPrompt = finalPrompt.replace(new RegExp(`{{${originalLabel}.output}}`, 'g'), strVal);
+                    }
+                });
+            }
+
+            // Fallback for full objects
             finalPrompt = finalPrompt.replace(/{{input}}/g, JSON.stringify(context.trigger.payload));
+            finalPrompt = finalPrompt.replace(/{{results}}/g, JSON.stringify(context.results));
 
             try {
                 if (provider === 'google') {
@@ -211,24 +233,25 @@ export const executeAction = async (action, context) => {
             }
 
             console.log(`[EMAIL] Node "${action.label}" - Using Real SMTP: ${useRealSmtp}`);
+            const transporterKey = useRealSmtp ? `${smtpHost}:${smtpUser}` : 'ethereal';
+
             if (useRealSmtp) {
-                console.log(`[EMAIL] Attempting connection to: ${smtpHost} as ${smtpUser}`);
-                activeTransporter = nodemailer.createTransport({
-                    host: smtpHost,
-                    port: smtpPort,
-                    secure: smtpPort === 465,
-                    auth: {
-                        user: smtpUser,
-                        pass: smtpPass,
-                    },
-                    debug: true,
-                    logger: true,
-                    tls: {
-                        rejectUnauthorized: false
-                    }
-                });
+                if (smtpTransporters.has(transporterKey)) {
+                    activeTransporter = smtpTransporters.get(transporterKey);
+                } else {
+                    console.log(`[EMAIL] Attempting connection to: ${smtpHost} as ${smtpUser}`);
+                    activeTransporter = nodemailer.createTransport({
+                        host: smtpHost,
+                        port: smtpPort,
+                        secure: smtpPort === 465,
+                        auth: { user: smtpUser, pass: smtpPass },
+                        debug: false,
+                        logger: false,
+                        tls: { rejectUnauthorized: false }
+                    });
+                    smtpTransporters.set(transporterKey, activeTransporter);
+                }
             } else {
-                console.log(`[EMAIL] Falling back to Ethereal test mode.`);
                 await setupEmail();
                 activeTransporter = transporter;
             }
@@ -356,47 +379,6 @@ export const executeAction = async (action, context) => {
                 evaluationStatus: 'success'
             };
 
-        case 'github_push':
-            const owner = action.config?.owner;
-            const repo = action.config?.repo;
-            const githubToken = action.config?.token;
-            const filePath = action.config?.path || 'output.json';
-            const commitMessage = action.config?.message || 'Update from Flowz';
-            let fileContent = action.config?.content || JSON.stringify(context.trigger.payload, null, 2);
-
-            if (!owner || !repo || !githubToken) {
-                throw new Error("Missing GitHub configuration (Owner, Repo, or Token)");
-            }
-
-            try {
-
-                let sha;
-                try {
-                    const getRes = await axios.get(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
-                        headers: { Authorization: `token ${githubToken}` }
-                    });
-                    sha = getRes.data.sha;
-                } catch (e) {
-
-                }
-
-                const pushRes = await axios.put(`https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, {
-                    message: commitMessage,
-                    content: Buffer.from(fileContent).toString('base64'),
-                    sha: sha
-                }, {
-                    headers: { Authorization: `token ${githubToken}` }
-                });
-
-                return {
-                    status: 'success',
-                    url: pushRes.data.content.html_url,
-                    sha: pushRes.data.content.sha,
-                    commit: pushRes.data.commit.sha
-                };
-            } catch (err) {
-                throw new Error(`GitHub Error: ${err.response?.data?.message || err.message}`);
-            }
 
         case 'log':
             const msg = action.config?.message || 'Standard Execution Log';
@@ -408,32 +390,33 @@ export const executeAction = async (action, context) => {
     }
 };
 
-export const runWorkflow = async (nodes, edges, initialPayload) => {
+export const runWorkflow = async (nodes, edges, triggerPayload = {}) => {
     console.log("[ENGINE] Starting workflow execution...");
+    const workflowStart = Date.now();
     const context = {
-        trigger: { payload: initialPayload },
-        results: {}
+        trigger: { payload: triggerPayload },
+        results: {},
     };
 
     const nodeLogs = [];
     const visited = new Set();
-    const workflowStart = Date.now();
 
-    // Find trigger
-    const triggerNode = nodes.find(n =>
-        n.data?.isTrigger ||
-        n.data?.type?.toLowerCase().includes('trigger') ||
-        ['app_event', 'form_submission', 'chat_message', 'other_ways'].includes(n.data?.type)
-    );
+    // Improved Trigger Detection
+    const triggerNodes = nodes.filter(n => {
+        const type = n.data?.type?.toLowerCase() || '';
+        return n.data?.isTrigger ||
+            type.includes('trigger') ||
+            ['app_event', 'form_submission', 'chat_message', 'other_ways'].includes(type);
+    });
 
-    if (!triggerNode) {
+    if (triggerNodes.length === 0) {
         console.error("[ENGINE] Execution error: No trigger node found.");
         throw new Error('No trigger node found');
     }
 
-    console.log(`[ENGINE] Found Trigger: ${triggerNode.data?.label} (${triggerNode.data?.type})`);
+    console.log(`[ENGINE] Found ${triggerNodes.length} Trigger Node(s)`);
 
-    let queue = [triggerNode];
+    let queue = [...triggerNodes];
     let stepCount = 0;
 
     try {
@@ -443,7 +426,7 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
             if (visited.has(currentNode.id)) continue;
             visited.add(currentNode.id);
 
-            console.log(`[ENGINE] Step ${stepCount}: Processing ${currentNode.data?.label}`);
+            console.log(`[ENGINE] Step ${stepCount}: Processing ${currentNode.data?.label || currentNode.id}`);
             const startTime = Date.now();
             try {
                 const actionData = {
@@ -453,7 +436,6 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
                     config: currentNode.data.config || {}
                 };
 
-                // Snapshot inputs for the results panel
                 const inputSnapshot = {
                     trigger_payload: context.trigger.payload,
                     previous_results: { ...context.results }
@@ -475,23 +457,19 @@ export const runWorkflow = async (nodes, edges, initialPayload) => {
                     duration: Date.now() - startTime
                 });
 
-                // Get outgoing edges
                 const outgoingEdges = edges.filter(e => e.source === currentNode.id);
-
                 for (const edge of outgoingEdges) {
                     const nextNode = nodes.find(n => n.id === edge.target);
-                    if (!nextNode) continue;
-
-                    if (currentNode.data.type === 'ifElse') {
-                        const branch = result.outcome;
-                        if (edge.sourceHandle === branch) {
+                    if (nextNode) {
+                        if (currentNode.data.type === 'ifElse') {
+                            if (edge.sourceHandle === result.outcome) {
+                                queue.push(nextNode);
+                            }
+                        } else {
                             queue.push(nextNode);
                         }
-                    } else {
-                        queue.push(nextNode);
                     }
                 }
-
             } catch (error) {
                 nodeLogs.push({
                     nodeId: currentNode.id,

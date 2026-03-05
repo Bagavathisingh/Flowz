@@ -1,4 +1,4 @@
-import { X, CheckCircle2, XCircle, Clock, Info, Eye, EyeOff } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Clock, Info, Eye, EyeOff, Sparkles, Plus } from 'lucide-react';
 import { useState } from 'react';
 
 export default function PropertiesSidebar({ selectedNode, setSelectedNode, updateNodeConfig }) {
@@ -7,7 +7,6 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
     const { executionStatus, executionResult } = selectedNode.data;
     const [showSmtpPass, setShowSmtpPass] = useState(false);
     const [showAiKey, setShowAiKey] = useState(false);
-    const [showGithubToken, setShowGithubToken] = useState(false);
 
     return (
         <div className="absolute top-0 right-0 w-80 h-screen bg-slate-900/95 backdrop-blur-xl border-l border-white/10 flex flex-col z-30 shadow-[-10px_0_30px_rgba(0,0,0,0.5)] animate-[slideLeft_0.3s_ease]">
@@ -131,66 +130,111 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                     )}
 
                     {selectedNode.data.type === 'ai_model' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">AI Provider</label>
-                                <select
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none"
-                                    value={selectedNode.data.config?.provider || 'google'}
-                                    onChange={(e) => updateNodeConfig('provider', e.target.value)}
-                                >
-                                    <option value="google">Google Gemini</option>
-                                    <option value="openai">OpenAI</option>
-                                </select>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">API Key</label>
-                                <div className="relative">
-                                    <input
-                                        type={showAiKey ? "text" : "password"}
-                                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 pr-10 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                        placeholder="sk-..."
-                                        value={selectedNode.data.config?.api_key || ''}
-                                        onChange={(e) => updateNodeConfig('api_key', e.target.value)}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowAiKey(!showAiKey)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none p-0 text-slate-500 hover:text-white cursor-pointer transition-colors"
+                        <div className="flex flex-col gap-6">
+                            <div className="flex flex-col gap-3">
+                                <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">AI Setup & Instructions</label>
+                                <div className="p-4 rounded-2xl bg-purple-500/5 border border-purple-500/10 flex flex-col gap-2 mb-2">
+                                    <div className="flex items-center gap-2 text-purple-400 font-bold text-xs uppercase tracking-wider">
+                                        <Sparkles size={14} /> Intelligence Activated
+                                    </div>
+                                    <p className="text-[0.75rem] text-slate-400 m-0 leading-relaxed">
+                                        This node uses a high-performance LLM to process your instructions. Describe the task and persona below.
+                                    </p>
+                                </div>
+                                <div className="flex flex-col gap-3">
+                                    <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">AI Provider</label>
+                                    <select
+                                        className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white text-[0.85rem] outline-none focus:border-purple-500/50 transition-all font-medium"
+                                        value={selectedNode.data.config?.provider || 'google'}
+                                        onChange={(e) => {
+                                            const p = e.target.value;
+                                            updateNodeConfig({
+                                                provider: p,
+                                                model: p === 'openai' ? 'gpt-4o' : 'gemini-3.1-flash-preview'
+                                            });
+                                        }}
                                     >
-                                        {showAiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                                    </button>
+                                        <option value="google">Google Gemini</option>
+                                        <option value="openai">OpenAI</option>
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-3">
+                                    <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">Model Name</label>
+                                    <select
+                                        className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white text-[0.85rem] outline-none focus:border-purple-500/50 transition-all font-medium"
+                                        value={selectedNode.data.config?.model || (selectedNode.data.config?.provider === 'openai' ? 'gpt-4o' : 'gemini-1.5-flash')}
+                                        onChange={(e) => updateNodeConfig('model', e.target.value)}
+                                    >
+                                        {selectedNode.data.config?.provider === 'openai' ? (
+                                            <>
+                                                <option value="gpt-4o">GPT-4o (Fast & Balanced)</option>
+                                                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <option value="gemini-3.1-flash-preview">Gemini 3.1 Flash Preview (Experimental)</option>
+                                                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Standard)</option>
+                                                <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Latest)</option>
+                                                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                                                <option value="gemini-pro">Gemini 1.0 Pro (Most Stable)</option>
+                                            </>
+                                        )}
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-3">
+                                    <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">API Key</label>
+                                    <div className="relative">
+                                        <input
+                                            type={showAiKey ? "text" : "password"}
+                                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 pr-10 text-white text-[0.85rem] outline-none focus:border-purple-500/50 transition-all font-mono"
+                                            placeholder={selectedNode.data.config?.provider === 'openai' ? "sk-..." : "AIza..."}
+                                            value={selectedNode.data.config?.api_key || ''}
+                                            onChange={(e) => updateNodeConfig('api_key', e.target.value)}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowAiKey(!showAiKey)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none text-slate-500 hover:text-white transition-colors"
+                                        >
+                                            {showAiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+                                    <span className="text-[0.6rem] text-slate-600 flex items-center gap-2"><Info size={10} /> Optional if environment variable is set.</span>
                                 </div>
                             </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Model Name</label>
-                                <input
-                                    type="text"
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none"
-                                    placeholder={selectedNode.data.config?.provider === 'openai' ? "gpt-4o" : "gemini-1.5-flash"}
-                                    value={selectedNode.data.config?.model || ''}
-                                    onChange={(e) => updateNodeConfig('model', e.target.value)}
-                                />
+
+                            <div className="flex flex-col gap-3">
+                                <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">System Persona</label>
+                                <div className="relative group">
+                                    <div className="absolute -inset-0.5 bg-purple-500/10 rounded-xl blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                                    <textarea
+                                        className="relative w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-[0.85rem] h-[100px] resize-none outline-none focus:border-purple-500/40 transition-all font-medium leading-relaxed custom-scrollbar"
+                                        placeholder="e.g. You are a professional data analyst who provides concise bullet-point summaries..."
+                                        value={selectedNode.data.config?.system_prompt || ''}
+                                        onChange={(e) => updateNodeConfig('system_prompt', e.target.value)}
+                                    />
+                                </div>
+                                <span className="text-[0.65rem] text-slate-600 font-bold uppercase tracking-widest flex items-center gap-2"><Info size={10} /> Define AI's behavior and tone.</span>
                             </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">System Prompt / Persona</label>
-                                <textarea
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.85rem] h-[80px] resize-none outline-none overflow-y-auto"
-                                    placeholder="e.g. You are a friendly friend who talks casually..."
-                                    value={selectedNode.data.config?.system_prompt || ''}
-                                    onChange={(e) => updateNodeConfig('system_prompt', e.target.value)}
-                                />
-                                <span className="text-[0.7rem] text-slate-500 italic flex items-center gap-1"><Info size={10} /> Sets the AI's behavior and personality.</span>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Prompt / Instruction</label>
-                                <textarea
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.85rem] h-[100px] resize-none outline-none overflow-y-auto"
-                                    placeholder="e.g. Summarize the input text..."
-                                    value={selectedNode.data.config?.prompt || ''}
-                                    onChange={(e) => updateNodeConfig('prompt', e.target.value)}
-                                />
-                                <span className="text-[0.7rem] text-slate-500 italic flex items-center gap-1"><Info size={10} /> Use {'{{text}}'} to reference the user's message.</span>
+
+                            <div className="flex flex-col gap-3">
+                                <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">Task Instructions</label>
+                                <div className="relative group">
+                                    <div className="absolute -inset-0.5 bg-blue-500/10 rounded-xl blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                                    <textarea
+                                        className="relative w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-[0.85rem] h-[140px] resize-none outline-none focus:border-blue-500/40 transition-all font-medium leading-relaxed custom-scrollbar"
+                                        placeholder="e.g. Summarize the following project data: {{text}}"
+                                        value={selectedNode.data.config?.prompt || ''}
+                                        onChange={(e) => updateNodeConfig('prompt', e.target.value)}
+                                    />
+                                </div>
+                                <div className="p-3 bg-slate-950/40 rounded-lg border border-white/5 flex flex-col gap-1.5">
+                                    <span className="text-[0.65rem] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2"><Plus size={10} /> Variable Support</span>
+                                    <p className="text-[0.7rem] text-slate-400 m-0">
+                                        Use <code className="text-blue-400 font-black font-mono">{'{{text}}'}</code>, <code className="text-emerald-400 font-black font-mono">{'{{input}}'}</code>, or <code className="text-purple-400 font-black font-mono">{'{{Manual_Trigger}}'}</code> to inject data.
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -363,37 +407,6 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                         </div>
                     )}
 
-                    {selectedNode.data.type === 'github_push' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium whitespace-nowrap">Repository Owner</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="e.g. Bagavathisingh" value={selectedNode.data.config?.owner || ''} onChange={(e) => updateNodeConfig('owner', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium whitespace-nowrap">Repository Name</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="e.g. miniN8N" value={selectedNode.data.config?.repo || ''} onChange={(e) => updateNodeConfig('repo', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium whitespace-nowrap">Access Token</label>
-                                <div className="relative">
-                                    <input type={showGithubToken ? "text" : "password"} className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 pr-10 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="ghp_..." value={selectedNode.data.config?.token || ''} onChange={(e) => updateNodeConfig('token', e.target.value)} />
-                                    <button type="button" onClick={() => setShowGithubToken(!showGithubToken)} className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none text-slate-500 hover:text-white transition-colors">{showGithubToken ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-                                </div>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium whitespace-nowrap">File Path</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="data/results.json" value={selectedNode.data.config?.path || ''} onChange={(e) => updateNodeConfig('path', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium whitespace-nowrap">Commit Message</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="Update data" value={selectedNode.data.config?.message || ''} onChange={(e) => updateNodeConfig('message', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium whitespace-nowrap">Content</label>
-                                <textarea className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.85rem] h-[100px] resize-none outline-none" placeholder="Custom content..." value={selectedNode.data.config?.content || ''} onChange={(e) => updateNodeConfig('content', e.target.value)} />
-                            </div>
-                        </div>
-                    )}
 
                     {['log'].includes(selectedNode.data.type) && (
                         <div className="flex flex-col gap-2">

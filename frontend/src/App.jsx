@@ -49,9 +49,7 @@ const BuilderCanvas = () => {
   const [workflowHistory, setWorkflowHistory] = useState([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [showGithubModal, setShowGithubModal] = useState(false);
   const [workflowName, setWorkflowName] = useState('');
-  const [githubConfig, setGithubConfig] = useState({ owner: '', repo: '', token: '', path: 'workflow.json', message: 'Update workflow from Flowz' });
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -170,23 +168,26 @@ const BuilderCanvas = () => {
 
   const updateNodeConfig = (key, value) => {
     if (!selectedNode) return;
-    const updatedConfig = key === 'full_config'
-      ? value
-      : { ...(selectedNode.data.config || {}), [key]: value };
+
+    const applyUpdate = (currentConfig) => {
+      if (key === 'full_config') return value;
+      if (typeof key === 'object' && key !== null) return { ...currentConfig, ...key };
+      return { ...currentConfig, [key]: value };
+    };
 
     setNodes((nds) =>
       nds.map((node) => {
         if (node.id === selectedNode.id) {
-          return { ...node, data: { ...node.data, config: updatedConfig } };
+          return { ...node, data: { ...node.data, config: applyUpdate(node.data.config || {}) } };
         }
         return node;
       })
     );
 
-    setSelectedNode((prev) => ({
-      ...prev,
-      data: { ...prev.data, config: updatedConfig }
-    }));
+    setSelectedNode((prev) => {
+      if (!prev) return null;
+      return { ...prev, data: { ...prev.data, config: applyUpdate(prev.data.config || {}) } };
+    });
   };
   const generateWorkflow = async () => {
     if (!aiPrompt) return;
@@ -326,13 +327,13 @@ const BuilderCanvas = () => {
             ? { ...node, data: { ...node.data, executionStatus: 'loading' } }
             : node
         ));
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 200)); // Reduced from 600ms
         setNodes(nds => nds.map(node =>
           node.id === log.nodeId
             ? { ...node, data: { ...node.data, executionStatus: log.status, executionResult: log.result || log.error } }
             : node
         ));
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 100)); // Reduced from 200ms
       }
 
       if (res.data.status === 'failure') {
@@ -448,30 +449,6 @@ const BuilderCanvas = () => {
     }
   };
 
-  const pushWorkflowToGithub = async () => {
-    const { owner, repo, token, path, message } = githubConfig;
-    if (!owner || !repo || !token) {
-      return notify('error', 'Please provide Owner, Repo, and Token.');
-    }
-    setIsSaving(true);
-    try {
-      await axios.post(`${API_URL}/workflows/push-to-github`, {
-        owner,
-        repo,
-        token,
-        path,
-        message,
-        content: JSON.stringify({ nodes, edges }, null, 2)
-      });
-      setShowGithubModal(false);
-      notify('success', 'Workflow successfully pushed to GitHub!');
-    } catch (error) {
-      console.error('Failed to push to GitHub:', error);
-      notify('error', error.response?.data?.error || 'Error pushing to GitHub.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   return (
     <div className="flex h-screen w-screen bg-[#020617] text-slate-200 font-['Outfit'] overflow-hidden relative">
@@ -481,7 +458,6 @@ const BuilderCanvas = () => {
         <div className="relative z-30">
           <TopBar
             setShowSaveModal={setShowSaveModal}
-            setShowGithubModal={setShowGithubModal}
             openHistoryModal={openHistoryModal}
             setShowAiModal={setShowAiModal}
             handleTestRun={handleTestRun}
@@ -553,7 +529,6 @@ const BuilderCanvas = () => {
         generatedJsonResult={generatedJsonResult} applyGeneratedWorkflow={applyGeneratedWorkflow} setGeneratedJsonResult={setGeneratedJsonResult}
         showSaveModal={showSaveModal} setShowSaveModal={setShowSaveModal} workflowName={workflowName} setWorkflowName={setWorkflowName} isSaving={isSaving} saveWorkflow={saveWorkflow}
         showHistoryModal={showHistoryModal} setShowHistoryModal={setShowHistoryModal} isLoadingHistory={isLoadingHistory} workflowHistory={workflowHistory} loadWorkflow={loadWorkflow} deleteWorkflow={deleteWorkflow}
-        showGithubModal={showGithubModal} setShowGithubModal={setShowGithubModal} githubConfig={githubConfig} setGithubConfig={setGithubConfig} pushWorkflowToGithub={pushWorkflowToGithub}
       />
 
       <ExecutionPanel

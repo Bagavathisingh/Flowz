@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 import axios from 'axios';
 import { generateWorkflowConfig, explainErrorLog, modifyWorkflowConfig } from '../controllers/aiController.js';
 import { runWorkflow } from '../engine/index.js';
@@ -225,6 +226,7 @@ router.get('/trigger/chat/:workflowId/history', (req, res) => {
 
 router.post('/trigger/app-event/:workflowId', async (req, res) => {
     try {
+        fs.appendFileSync('d:/upload_git_File/miniN8N/backend/requests.log', `[${new Date().toISOString()}] Received request for ${req.params.workflowId}\n`);
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
 
@@ -241,34 +243,56 @@ router.post('/trigger/app-event/:workflowId', async (req, res) => {
 
         (async () => {
             try {
+                console.log(`[TELEGRAM] Running workflow for ${req.params.workflowId}...`);
                 const result = await runWorkflow(wf.nodes, wf.edges, payload);
+                console.log(`[TELEGRAM] Workflow status: ${result.status}`);
 
                 const appTrigger = wf.nodes?.find(n => n.data?.type === 'app_event');
                 const botToken = appTrigger?.data?.config?.telegram_token;
                 const chatId = payload.chat_id || appTrigger?.data?.config?.chat_id;
 
                 let reply;
+                // Try specific extraction from AI node results first
                 const aiNode = wf.nodes.find(n => n.data?.type === 'ai_model');
                 if (aiNode && result.nodeResults[aiNode.id]) {
-                    reply = result.nodeResults[aiNode.id].output;
-                } else {
-                    const lastOutput = Object.values(result.nodeResults || {}).pop();
-                    reply = lastOutput?.response || lastOutput?.output || lastOutput?.result;
+                    const aiRes = result.nodeResults[aiNode.id];
+                    reply = aiRes.output || aiRes.result || aiRes.text || aiRes;
                 }
 
-                if (botToken && chatId && reply) {
+                // Fallback to last successful node result if no AI output or no AI node
+                if (!reply && result.nodeLogs && result.nodeLogs.length > 0) {
+                    const successLogs = result.nodeLogs.filter(l => l.status === 'success' && !['app_event', 'manual_trigger', 'webhook_trigger'].includes(l.nodeType));
+                    if (successLogs.length > 0) {
+                        const lastLog = successLogs[successLogs.length - 1];
+                        const lastRes = lastLog.result;
+                        // Extract output from common node result patterns
+                        reply = lastRes?.output || lastRes?.response || lastRes?.result || lastRes?.data || lastRes?.text || lastRes;
+                    }
+                }
+
+                // Error fallback
+                if (!reply && result.status === 'failure') {
+                    reply = `Execution failed: ${result.error}`;
+                }
+
+                // Default fallback if absolutely nothing found
+                if (!reply) {
+                    reply = result.status === 'success' ? 'Workflow finished, but no output was generated.' : 'Workflow failed unexpectedly.';
+                }
+
+                if (botToken && chatId) {
                     console.log(`[TELEGRAM] Sending reply to chat ${chatId}...`);
                     await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
                         chat_id: chatId,
-                        text: typeof reply === 'string' ? reply : JSON.stringify(reply)
+                        text: typeof reply === 'string' ? reply : (typeof reply === 'object' ? JSON.stringify(reply, null, 2) : String(reply))
                     }).catch(err => {
-                        console.error('[TELEGRAM] Error sending message:', err.response?.data || err.message);
+                        console.error('[TELEGRAM] API Error:', err.response?.data || err.message);
                     });
                 } else {
-                    console.warn(`[TELEGRAM] No reply sent: token=${!!botToken}, chat=${!!chatId}, reply=${!!reply}`);
+                    console.warn(`[TELEGRAM] Missing info: token=${!!botToken}, chat=${chatId}`);
                 }
             } catch (err) {
-                console.error('[TELEGRAM] Background workflow error:', err.message);
+                console.error('[TELEGRAM] Process Error:', err.message);
             }
         })();
 
@@ -317,31 +341,6 @@ router.post('/trigger/error/:workflowId', async (req, res) => {
     }
 });
 
-// ─── GitHub Push ──────────────────────────────────────────────────────────────
-router.post('/workflows/push-to-github', async (req, res) => {
-    try {
-        const { owner, repo, token, path, message, content } = req.body;
-        if (!owner || !repo || !token) return res.status(400).json({ error: 'Missing GitHub configuration' });
-
-        let sha;
-        try {
-            const getRes = await axios.get(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
-                headers: { Authorization: `token ${token}` }
-            });
-            sha = getRes.data.sha;
-        } catch (e) { /* File doesn't exist yet */ }
-
-        const pushRes = await axios.put(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
-            message,
-            content: Buffer.from(content).toString('base64'),
-            sha
-        }, { headers: { Authorization: `token ${token}` } });
-
-        res.json({ success: true, url: pushRes.data.content.html_url });
-    } catch (error) {
-        res.status(500).json({ error: error.response?.data?.message || error.message });
-    }
-});
 
 export default router;
 

@@ -1,5 +1,5 @@
 import {
-    Globe, Zap, Mail, Database, Clock, Sparkles, Github, X, Plus,
+    Globe, Zap, Mail, Database, Clock, Sparkles, X, Plus,
     MousePointer2, Radio, Webhook, FileEdit, ArrowRightToLine, MessageSquare, Folder, Play
 } from 'lucide-react';
 
@@ -65,8 +65,7 @@ export default function Sidebar({ isOpen, setIsOpen }) {
                             { type: 'http_request', label: 'HTTP Request', icon: Globe, color: 'text-emerald-400', bg: 'bg-emerald-500/10', hbg: 'hover:bg-emerald-500' },
                             { type: 'send_email', label: 'Send Email', icon: Mail, color: 'text-amber-400', bg: 'bg-amber-500/10', hbg: 'hover:bg-amber-500' },
                             { type: 'save_to_database', label: 'Save to DB', icon: Database, color: 'text-cyan-400', bg: 'bg-cyan-500/10', hbg: 'hover:bg-cyan-500' },
-                            { type: 'ai_model', label: 'AI Model', icon: Sparkles, color: 'text-purple-400', bg: 'bg-purple-500/10', hbg: 'hover:bg-purple-500' },
-                            { type: 'github_push', label: 'GitHub Push', icon: Github, color: 'text-slate-200', bg: 'bg-slate-500/10', hbg: 'hover:bg-slate-700' },
+                            { type: 'ai_model', label: 'AI Agent', icon: Sparkles, color: 'text-purple-400', bg: 'bg-purple-500/10', hbg: 'hover:bg-purple-500' },
                             { type: 'delay', label: 'Delay', icon: Clock, color: 'text-rose-400', bg: 'bg-rose-500/10', hbg: 'hover:bg-rose-500' },
                         ].map((item) => (
                             <div
