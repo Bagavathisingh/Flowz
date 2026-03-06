@@ -5,6 +5,16 @@ dotenv.config();
 const genAI = new GoogleGenerativeAI(process.env.OPENAI_API_KEY || '');
 
 const cleanJson = (text) => {
+    try {
+        // Try to find the first '{' and the last '}'
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start !== -1 && end !== -1 && end > start) {
+            return text.substring(start, end + 1);
+        }
+    } catch (e) {
+        console.error("Error cleaning JSON:", e);
+    }
     return text.replace(/```json/g, '').replace(/```/g, '').trim();
 };
 
@@ -20,8 +30,10 @@ export const generateWorkflowConfig = async (req, res) => {
             }
         } catch (e) { }
 
-        // Using gemini-1.5-flash based to bypass 503 Experimental Model rate limits
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({
+            model: "gemini-2.0-flash",
+            generationConfig: { responseMimeType: "application/json" }
+        });
 
         const systemPrompt = `You are an advanced workflow architect generator like n8n. 
         Convert user text into a structured JSON Directed Acyclic Graph (DAG).
@@ -61,14 +73,9 @@ export const generateWorkflowConfig = async (req, res) => {
             });
         }
 
-        return res.json({
-            nodes: [
-                { id: "node_trigger", type: "webhook_trigger", data: { label: "Incoming Webhook", config: { method: "POST" } } },
-                { id: "node_success", type: "http_request", data: { label: "Notify", config: { url: "https://api.example.com" } } }
-            ],
-            edges: [
-                { id: "e1", source: "node_trigger", target: "node_success" }
-            ]
+        return res.status(500).json({
+            error: "Failed to generate workflow configuration.",
+            details: error.message
         });
     }
 };
@@ -76,7 +83,10 @@ export const generateWorkflowConfig = async (req, res) => {
 export const explainErrorLog = async (req, res) => {
     try {
         const { logs, error } = req.body;
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({
+            model: "gemini-2.0-flash",
+            generationConfig: { responseMimeType: "application/json" }
+        });
 
         const prompt = `You explain automation execution errors. Given the logs and error message, output JSON with 'explanation', 'cause', and 'fix' keys.
         Logs: ${JSON.stringify(logs)}
@@ -96,7 +106,10 @@ export const modifyWorkflowConfig = async (req, res) => {
         const { currentWorkflow, prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({
+            model: "gemini-2.0-flash",
+            generationConfig: { responseMimeType: "application/json" }
+        });
 
         const systemPrompt = `You are a professional workflow architect. 
         Modify the provided workflow (nodes and edges) based on the user's instructions.
@@ -109,7 +122,7 @@ export const modifyWorkflowConfig = async (req, res) => {
         - schedule_trigger: { "cron": "string" }
         - http_request: { "url": "string", "method": "GET"|"POST"|"PUT"|"DELETE" }
         - send_email: { "to": "email", "subject": "string" }
-        - delay: { "duration_seconds": number }
+        - delay: { "duration_minutes": number }
         - save_to_database: { "collection": "string" }
         - ai_model: { "provider": "google"|"openai", "model": "string", "prompt": "Instruction with {{input}}" }
         - ifElse: { "condition": "javascript_expression_using_payload" }
