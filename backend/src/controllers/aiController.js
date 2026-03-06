@@ -20,8 +20,8 @@ export const generateWorkflowConfig = async (req, res) => {
             }
         } catch (e) { }
 
-        // Using gemini-2.5-flash based to bypass 503 Experimental Model rate limits
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        // Using gemini-1.5-flash based to bypass 503 Experimental Model rate limits
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const systemPrompt = `You are an advanced workflow architect generator like n8n. 
         Convert user text into a structured JSON Directed Acyclic Graph (DAG).
@@ -76,7 +76,7 @@ export const generateWorkflowConfig = async (req, res) => {
 export const explainErrorLog = async (req, res) => {
     try {
         const { logs, error } = req.body;
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const prompt = `You explain automation execution errors. Given the logs and error message, output JSON with 'explanation', 'cause', and 'fix' keys.
         Logs: ${JSON.stringify(logs)}
@@ -96,7 +96,7 @@ export const modifyWorkflowConfig = async (req, res) => {
         const { currentWorkflow, prompt } = req.body;
         if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const systemPrompt = `You are a professional workflow architect. 
         Modify the provided workflow (nodes and edges) based on the user's instructions.
