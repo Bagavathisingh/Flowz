@@ -1,71 +1,85 @@
 import { Save, History, Sparkles, Play, Loader2, LayoutTemplate, Plus } from 'lucide-react';
 
-export default function TopBar({ setShowSaveModal, openHistoryModal, setShowAiModal, handleTestRun, isExecuting, onLayout, setIsSidebarOpen, isSidebarOpen, hasNodes }) {
+export default function TopBar({ setShowSaveModal, openHistoryModal, setShowAiModal, handleTestRun, isExecuting, onLayout, setIsSidebarOpen, isSidebarOpen, hasNodes, isPropertiesOpen }) {
+    if (isPropertiesOpen) return null;
+
     return (
-        <div className="absolute top-6 left-6 right-6 flex justify-between items-center z-10 pointer-events-none">
+        <div className="absolute top-6 right-6 flex flex-col gap-3 pointer-events-auto z-[40]">
+            {/* Action Buttons: Individual Floating Elements */}
+            <button
+                className="group relative p-3.5 bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl text-slate-400 hover:text-white transition-all active:scale-90 cursor-pointer border-none"
+                onClick={() => setShowSaveModal(true)}
+                disabled={isExecuting}
+            >
+                <Save size={20} />
+                <span className="absolute right-full mr-4 px-3 py-1.5 bg-slate-950 text-white text-[0.7rem] font-black uppercase tracking-widest rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all shadow-2xl border border-white/10 whitespace-nowrap">
+                    Save
+                </span>
+            </button>
 
-            {/* Left: + Add Nodes — only shown when canvas has nodes */}
-            <div className="flex gap-4 pointer-events-auto">
-                {hasNodes && (
-                    <button
-                        className={`p-3 rounded-xl border border-white/10 transition-all active:scale-95 shadow-xl flex items-center gap-2 font-bold ${isSidebarOpen ? 'bg-blue-600 text-white border-blue-500' : 'bg-slate-900/80 backdrop-blur-md text-slate-400 hover:text-white hover:bg-slate-800'}`}
-                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                        title="Add Nodes"
-                    >
-                        <Plus
-                            size={22}
-                            className={isSidebarOpen ? 'rotate-45' : ''}
-                            style={{ transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)' }}
-                        />
-                        {!isSidebarOpen && <span className="pr-1 text-sm">Add Nodes</span>}
-                    </button>
+            <button
+                className="group relative p-3.5 bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl text-slate-400 hover:text-white transition-all active:scale-90 cursor-pointer border-none"
+                onClick={openHistoryModal}
+                disabled={isExecuting}
+            >
+                <History size={20} />
+                <span className="absolute right-full mr-4 px-3 py-1.5 bg-slate-950 text-white text-[0.7rem] font-black uppercase tracking-widest rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all shadow-2xl border border-white/10 whitespace-nowrap">
+                    History
+                </span>
+            </button>
+
+            <button
+                className="group relative p-3.5 bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl text-pink-400 hover:text-pink-300 transition-all active:scale-90 cursor-pointer border-none"
+                onClick={() => setShowAiModal(true)}
+                disabled={isExecuting}
+            >
+                <Sparkles size={20} />
+                <span className="absolute right-full mr-4 px-3 py-1.5 bg-slate-950 text-white text-[0.7rem] font-black uppercase tracking-widest rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all shadow-2xl border border-white/10 whitespace-nowrap">
+                    AI Architect
+                </span>
+            </button>
+
+            <button
+                className="group relative p-3.5 bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl text-blue-400 hover:text-blue-300 transition-all active:scale-90 cursor-pointer border-none"
+                onClick={onLayout}
+                disabled={isExecuting}
+            >
+                <LayoutTemplate size={20} />
+                <span className="absolute right-full mr-4 px-3 py-1.5 bg-slate-950 text-white text-[0.7rem] font-black uppercase tracking-widest rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all shadow-2xl border border-white/10 whitespace-nowrap">
+                    Auto Layout
+                </span>
+            </button>
+
+            {/* Main Primary Execution Button */}
+            <button
+                className={`group relative w-14 h-14 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl transition-all active:scale-90 shadow-[0_12px_48px_-8px_rgba(79,70,229,0.5)] border-none cursor-pointer flex items-center justify-center ${isExecuting ? 'opacity-80 scale-95 cursor-wait' : ''
+                    }`}
+                onClick={handleTestRun}
+                disabled={isExecuting}
+            >
+                {isExecuting ? (
+                    <Loader2 size={24} className="animate-spin" />
+                ) : (
+                    <Play size={24} fill="currentColor" strokeWidth={0} />
                 )}
-            </div>
+                <span className="absolute right-full mr-4 px-3 py-1.5 bg-slate-950 text-white text-[0.7rem] font-black uppercase tracking-widest rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all shadow-2xl border border-white/10 whitespace-nowrap">
+                    Run Workflow
+                </span>
+            </button>
 
-            {/* Right: action buttons */}
-            <div className="flex gap-3 pointer-events-auto">
-                <button
-                    className="bg-emerald-500 hover:bg-emerald-600 border-none text-white px-5 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-[0_4px_14px_rgba(16,185,129,0.3)] hover:shadow-[0_6px_20px_rgba(16,185,129,0.4)] hover:-translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => setShowSaveModal(true)}
-                    disabled={isExecuting}
-                >
-                    <Save size={17} /> Save
-                </button>
-                <button
-                    className="bg-blue-500 hover:bg-blue-600 border-none text-white px-5 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-[0_4px_14px_rgba(59,130,246,0.3)] hover:shadow-[0_6px_20px_rgba(59,130,246,0.4)] hover:-translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={openHistoryModal}
-                    disabled={isExecuting}
-                >
-                    <History size={17} /> History
-                </button>
-                <button
-                    className="bg-slate-700 hover:bg-slate-600 border-none text-white px-5 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-[0_4px_14px_rgba(51,65,85,0.3)] hover:shadow-[0_6px_20px_rgba(51,65,85,0.4)] hover:-translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={onLayout}
-                    disabled={isExecuting}
-                    title="Automatically arrange nodes"
-                >
-                    <LayoutTemplate size={17} /> Auto Arrange
-                </button>
-                <button
-                    className="bg-gradient-to-br from-purple-500 to-pink-500 border-none hover:brightness-110 text-white px-5 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-[0_4px_14px_rgba(236,72,153,0.3)] hover:shadow-[0_6px_20px_rgba(236,72,153,0.4)] hover:-translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => setShowAiModal(true)}
-                    disabled={isExecuting}
-                >
-                    <Sparkles size={17} /> Generate AI
-                </button>
-                <button
-                    className="bg-indigo-600 hover:bg-indigo-700 border-none text-white px-5 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-[0_4px_14px_rgba(79,70,229,0.3)] hover:shadow-[0_6px_20px_rgba(79,70,229,0.4)] hover:-translate-y-[1px] disabled:opacity-75 disabled:cursor-wait"
-                    onClick={handleTestRun}
-                    disabled={isExecuting}
-                >
-                    {isExecuting ? (
-                        <><Loader2 size={17} className="animate-spin" /> Testing...</>
-                    ) : (
-                        <><Play size={17} /> Test Run</>
-                    )}
-                </button>
-            </div>
+            {/* The Plus Button: Redesigned based on screenshot */}
+            <button
+                className={`group absolute bottom-[-45vh] right-0 w-14 h-14 rounded-2xl border transition-all active:scale-90 cursor-pointer flex items-center justify-center shadow-2xl ${isSidebarOpen
+                    ? 'bg-blue-600 text-white border-blue-400 shadow-blue-500/20'
+                    : 'bg-slate-900 border-white/10 text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            >
+                <Plus size={26} strokeWidth={2.5} className={isSidebarOpen ? 'rotate-45' : ''} style={{ transition: 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }} />
+                <span className="absolute right-full mr-4 px-3 py-1.5 bg-slate-950 text-white text-[0.7rem] font-black uppercase tracking-widest rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-all shadow-2xl border border-white/10 whitespace-nowrap">
+                    Add Step
+                </span>
+            </button>
         </div>
     );
 }
-

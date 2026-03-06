@@ -41,6 +41,68 @@ const getExternalDb = async (connectionString) => {
 export const executeAction = async (action, context) => {
     console.log(`[ENGINE] Executing Node: ${action.label || action.id} (${action.type})`);
 
+    // Helper to interpolate payload and result variables dynamically (e.g., {{payload.data.email}})
+    const interpolate = (str) => {
+        if (typeof str !== 'string' || !str.includes('{{')) return str;
+
+        // Match variables including spaces (e.g., {{ AI Node.output }})
+        let result = str.replace(/\{\{\s*([\w\.\_\s]+?)\s*\}\}/g, (match, path) => {
+            let current = context;
+
+            if (path === 'payload' || path === 'input') return JSON.stringify(context.trigger?.payload || {});
+            if (path === 'results') return JSON.stringify(context.results || {});
+
+            let keys = path.trim().split('.');
+            if (keys[0] === 'payload' || keys[0] === 'input') {
+                keys = ['trigger', 'payload', ...keys.slice(1)];
+            } else if (keys[0] === 'results') {
+                // leave as is
+            } else {
+                // Determine base fallback
+                if (context.results && context.results[keys[0]]) {
+                    keys = ['results', ...keys];
+                } else if (context.trigger?.payload?.[keys[0]]) {
+                    keys = ['trigger', 'payload', ...keys];
+                }
+            }
+
+            for (const k of keys) {
+                if (current === null || current === undefined) { current = ''; break; }
+                current = current[k] !== undefined ? current[k] : current[k.replace(/_/g, ' ')];
+            }
+
+            // If the user requested a whole node object, get its output context intelligently
+            if (typeof current === 'object' && current !== null && current.output !== undefined) {
+                current = current.output;
+            }
+
+            if (current === undefined || current === null || current === '') return '';
+            return typeof current === 'object' ? JSON.stringify(current) : String(current);
+        });
+
+        // Clean up any remaining unresolved variables to prevent execution errors
+        result = result.replace(/\{\{.*?\}\}/g, '');
+
+        return result;
+    };
+
+    // Recursively apply interpolation to all string values in node configuration
+    const processConfig = (obj) => {
+        if (obj === null || obj === undefined) return obj;
+        if (typeof obj === 'string') return interpolate(obj);
+        if (Array.isArray(obj)) return obj.map(processConfig);
+        if (typeof obj === 'object') {
+            const newObj = {};
+            for (const key in obj) {
+                newObj[key] = processConfig(obj[key]);
+            }
+            return newObj;
+        }
+        return obj;
+    };
+
+    action.config = processConfig(action.config);
+
     switch (action.type) {
         case 'webhook_trigger':
             return {
@@ -147,44 +209,10 @@ export const executeAction = async (action, context) => {
             let modelName = action.config?.model || (provider === 'google' ? 'gemini-3.1-flash-preview' : 'gpt-4o');
             console.log(`[AI ENGINE] Node "${action.label}" - Provider: ${provider}, Model: ${modelName}`);
 
-            let promptTemplate = action.config?.prompt || '{{text}}';
+            let finalPrompt = action.config?.prompt || '';
             const systemPrompt = action.config?.system_prompt || '';
 
             if (!apiKey) throw new Error(`API Key for ${provider} is missing. Please configure it in node properties.`);
-
-            let finalPrompt = promptTemplate;
-            // Replace individual fields from trigger payload
-            if (context.trigger.payload) {
-                Object.entries(context.trigger.payload).forEach(([key, val]) => {
-                    const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
-                    finalPrompt = finalPrompt.replace(new RegExp(`{{${key}}}`, 'g'), strVal);
-                });
-            }
-
-            // Replace previous node results (e.g. {{Node Label.output}})
-            if (context.results) {
-                Object.entries(context.results).forEach(([label, result]) => {
-                    const output = result.output || result.result || result;
-                    const strVal = typeof output === 'object' ? JSON.stringify(output) : String(output);
-
-                    // Match based on normalized label (underscores)
-                    // e.g. {{My_Node_Label}}
-                    finalPrompt = finalPrompt.replace(new RegExp(`{{${label}}}`, 'g'), strVal);
-                    finalPrompt = finalPrompt.replace(new RegExp(`{{${label}.output}}`, 'g'), strVal);
-
-                    // Match based on original label with spaces if it was normalized
-                    // e.g. {{My Node Label}}
-                    const originalLabel = label.replace(/_/g, ' ');
-                    if (originalLabel !== label) {
-                        finalPrompt = finalPrompt.replace(new RegExp(`{{${originalLabel}}}`, 'g'), strVal);
-                        finalPrompt = finalPrompt.replace(new RegExp(`{{${originalLabel}.output}}`, 'g'), strVal);
-                    }
-                });
-            }
-
-            // Fallback for full objects
-            finalPrompt = finalPrompt.replace(/{{input}}/g, JSON.stringify(context.trigger.payload));
-            finalPrompt = finalPrompt.replace(/{{results}}/g, JSON.stringify(context.results));
 
             try {
                 if (provider === 'google') {
@@ -257,8 +285,7 @@ export const executeAction = async (action, context) => {
             }
 
             const fromEmail = smtpUser || 'noreplay@ethereal.email';
-            const toEmail = action.config?.to || "test@example.com";
-
+            const toEmail = (action.config?.to || "").trim() || "test@example.com";
             // Find the most recent result that isn't null and isn't the trigger
             const resultIds = Object.keys(context.results);
             const lastResultId = resultIds[resultIds.length - 1];
@@ -318,17 +345,16 @@ export const executeAction = async (action, context) => {
                 let storageType;
 
                 if (connString) {
-                    // External MongoDB storage
+
                     const client = await getExternalDb(connString);
                     db = client.db();
                     storageType = 'External MongoDB';
                 } else {
-                    // Internal MongoDB storage
+
                     db = mongoose.connection.db;
                     storageType = 'System Default MongoDB';
                 }
 
-                // USER REQUEST: Check if collection exists, if not create it
                 const collections = await db.listCollections({ name: collectionName }).toArray();
                 if (collections.length === 0) {
                     await db.createCollection(collectionName);
@@ -360,8 +386,6 @@ export const executeAction = async (action, context) => {
             const condition = action.config?.condition || "true";
             let evaluation = false;
             try {
-                // Now supports results from previous nodes!
-                // Example: results['Summarize_AI'].output.includes('Urgent')
                 const evalFn = new Function('payload', 'results', `
                     try {
                         return ${condition};

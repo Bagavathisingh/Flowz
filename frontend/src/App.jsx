@@ -24,6 +24,7 @@ import ContextMenu from './components/ContextMenu';
 import ExecutionPanel from './components/ExecutionPanel';
 import TestInputModal from './components/TestInputModal';
 import PublishModal from './components/PublishModal';
+import WorkflowTabs from './components/WorkflowTabs';
 
 const API_URL = 'http://localhost:5000/api';
 
@@ -57,6 +58,10 @@ const BuilderCanvas = () => {
   const [showExecutionPanel, setShowExecutionPanel] = useState(false);
   const [showTestInputModal, setShowTestInputModal] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
+
+  // Multi-Workflow / Tabs State
+  const [openWorkflows, setOpenWorkflows] = useState([]);
+  const [activeWorkflowId, setActiveWorkflowId] = useState(null);
 
   const reactFlowWrapper = useRef(null);
   const { screenToFlowPosition, setViewport } = useReactFlow();
@@ -290,9 +295,10 @@ const BuilderCanvas = () => {
     setEdges(generatedEdges);
     setShowAiModal(false);
     setGeneratedJsonResult(null);
+    setSelectedNode(null); // Clear selected node to hide property panel
     setAiPrompt('');
     notify('success', 'Workflow applied to canvas.', 'Success');
-    setTimeout(() => setViewport({ x: 0, y: 0, zoom: 1 }), 100);
+    setTimeout(() => setViewport({ x: 0, y: 0, zoom: 0.6 }), 100);
   };
 
   // Open the test input modal first — actual execution happens after user fills inputs
@@ -373,11 +379,33 @@ const BuilderCanvas = () => {
   };
 
   const loadWorkflow = (workflow) => {
-    setNodes(workflow.nodes || []);
-    setEdges(workflow.edges || []);
+    const workflowId = workflow._id || workflow.id;
+
+    // Check if already open
+    const alreadyOpen = openWorkflows.find(wf => (wf._id || wf.id) === workflowId);
+
+    if (alreadyOpen) {
+      switchWorkflow(workflowId);
+    } else {
+      // Save current before opening new
+      if (activeWorkflowId) {
+        setOpenWorkflows(prev => {
+          const updated = prev.map(wf => (wf._id || wf.id) === activeWorkflowId ? { ...wf, nodes, edges, name: workflowName } : wf);
+          return [...updated, workflow];
+        });
+      } else {
+        setOpenWorkflows([workflow]);
+      }
+
+      setNodes(workflow.nodes || []);
+      setEdges(workflow.edges || []);
+      setWorkflowName(workflow.name || '');
+      setActiveWorkflowId(workflowId);
+    }
+
     setShowHistoryModal(false);
-    notify('info', `Loaded workflow: ${workflow.name}`);
-    setTimeout(() => setViewport({ x: 0, y: 0, zoom: 1 }), 100);
+    notify('info', `Opened workflow: ${workflow.name}`);
+    setTimeout(() => setViewport({ x: 0, y: 0, zoom: 0.6 }), 100);
   };
 
   const deleteWorkflow = async (id) => {
@@ -385,10 +413,88 @@ const BuilderCanvas = () => {
       await axios.delete(`${API_URL}/workflows/${id}`);
       notify('success', 'Workflow deleted successfully!');
       fetchWorkflows();
+      // Remove from tabs if open
+      setOpenWorkflows(prev => prev.filter(wf => (wf._id || wf.id) !== id));
+      if (activeWorkflowId === id) {
+        setNodes([]);
+        setEdges([]);
+        setWorkflowName('');
+        setActiveWorkflowId(null);
+      }
     } catch (error) {
       console.error('Failed to delete workflow:', error);
       notify('error', 'Could not delete workflow.');
     }
+  };
+
+  const switchWorkflow = (targetId) => {
+    if (targetId === activeWorkflowId) return;
+
+    // Save current active workflow state into openWorkflows list
+    const updatedOpenWorkflows = openWorkflows.map(wf => {
+      const currentId = wf._id || wf.id;
+      if (currentId === activeWorkflowId) {
+        return { ...wf, nodes, edges, name: workflowName };
+      }
+      return wf;
+    });
+
+    const targetWorkflow = updatedOpenWorkflows.find(wf => (wf._id || wf.id) === targetId);
+
+    if (targetWorkflow) {
+      setOpenWorkflows(updatedOpenWorkflows);
+      setNodes(targetWorkflow.nodes || []);
+      setEdges(targetWorkflow.edges || []);
+      setWorkflowName(targetWorkflow.name || '');
+      setActiveWorkflowId(targetId);
+      setTimeout(() => setViewport({ x: 0, y: 0, zoom: 0.6 }), 50);
+    }
+  };
+
+  const closeWorkflow = (id) => {
+    const remaining = openWorkflows.filter(wf => (wf._id || wf.id) !== id);
+    setOpenWorkflows(remaining);
+
+    if (activeWorkflowId === id) {
+      if (remaining.length > 0) {
+        const next = remaining[remaining.length - 1];
+        const nextId = next._id || next.id;
+        setNodes(next.nodes || []);
+        setEdges(next.edges || []);
+        setWorkflowName(next.name || '');
+        setActiveWorkflowId(nextId);
+      } else {
+        setNodes([]);
+        setEdges([]);
+        setWorkflowName('');
+        setActiveWorkflowId(null);
+      }
+    }
+  };
+
+  const createNewWorkflow = () => {
+    const newId = `unsaved_${Date.now()}`;
+    const newWf = {
+      id: newId,
+      name: 'Untitled Workflow',
+      nodes: [],
+      edges: []
+    };
+
+    // Save current before switching
+    if (activeWorkflowId) {
+      setOpenWorkflows(prev => {
+        const updated = prev.map(wf => (wf._id || wf.id) === activeWorkflowId ? { ...wf, nodes, edges, name: workflowName } : wf);
+        return [...updated, newWf];
+      });
+    } else {
+      setOpenWorkflows([newWf]);
+    }
+
+    setNodes([]);
+    setEdges([]);
+    setWorkflowName('Untitled Workflow');
+    setActiveWorkflowId(newId);
   };
 
   const onLayout = useCallback(() => {
@@ -439,8 +545,12 @@ const BuilderCanvas = () => {
         edges
       });
       setShowSaveModal(false);
-      setWorkflowName('');
+      // Update local state if it's the current tab
+      setOpenWorkflows(prev => prev.map(wf =>
+        (wf._id || wf.id) === activeWorkflowId ? { ...wf, name: workflowName, nodes, edges } : wf
+      ));
       notify('success', 'Your workflow has been saved to the database.', 'Workflow Saved');
+      fetchWorkflows(); // Refresh list to get the real MongoDB ID if it was unsaved
     } catch (error) {
       console.error('Failed to save workflow:', error);
       notify('error', 'Error saving workflow to database.');
@@ -455,7 +565,19 @@ const BuilderCanvas = () => {
       <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
 
       <div className="flex-1 relative bg-[radial-gradient(circle_at_50%_50%,rgba(30,41,59,0.5)_1px,transparent_1px)] bg-[size:24px_24px]" ref={reactFlowWrapper}>
-        <div className="relative z-30">
+        {/* Floating Top Header (Tabs) */}
+        <div className="z-30">
+          <WorkflowTabs
+            openWorkflows={openWorkflows}
+            activeWorkflowId={activeWorkflowId}
+            onSwitch={switchWorkflow}
+            onClose={closeWorkflow}
+            onNew={createNewWorkflow}
+          />
+        </div>
+
+        {/* Floating Action Controls (Right Side) */}
+        <div className="z-[45]">
           <TopBar
             setShowSaveModal={setShowSaveModal}
             openHistoryModal={openHistoryModal}
@@ -466,6 +588,7 @@ const BuilderCanvas = () => {
             setIsSidebarOpen={setIsSidebarOpen}
             isSidebarOpen={isSidebarOpen}
             hasNodes={nodes.length > 0}
+            isPropertiesOpen={!!selectedNode}
           />
         </div>
 
@@ -497,6 +620,7 @@ const BuilderCanvas = () => {
           onEdgeContextMenu={onEdgeContextMenu}
           onPaneContextMenu={onPaneContextMenu}
           nodeTypes={nodeTypes}
+          defaultViewport={{ x: 0, y: 0, zoom: 0.6 }}
           fitView
           colorMode="dark"
         >

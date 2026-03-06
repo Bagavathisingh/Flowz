@@ -1,0 +1,49 @@
+# Prototype Overview
+
+## Explanation of the Current Prototype
+The current prototype is an AI-powered, visual workflow automation platform designed to simplify the creation of complex integrations and logic. Users can visually map out processes using a drag-and-drop canvas, configure individual trigger and action nodes, and execute the entire sequence sequentially. The core differentiator is its integrated AI Assistant, which can generate entire workflow architectures from natural language prompts, as well as modify existing workflows intelligently. 
+
+## What Parts of the System Have Been Implemented So Far
+
+### Application Interface (Frontend)
+1. **Interactive Canvas**: Drag-and-drop node graph built with React Flow. Supports panning, zooming, and dynamic connections (edges) between nodes.
+2. **AI Generative Modal**: A direct chat interface where users simply describe what they want (e.g., "Create a workflow that checks my emails and texts me important ones") and the AI builds the actual node graph on the canvas instantly.
+3. **Multi-Tab Workspace**: Users have a browser-like tab system to work on multiple workflows in parallel without losing state or node positions.
+4. **Properties Sidebar**: Dynamically changes to show specific configuration fields (API keys, URLs, variables) depending on whichever node the user clicks.
+5. **Execution & Debug Panel**: A side panel that displays real-time logs, input payloads, and output states for each node during a test run.
+6. **Auto-Layout Editor**: A single-click feature (using `dagre`) to automatically resolve messy node webs into clean, horizontal flowcharts.
+
+### System Modules (Backend & Core)
+1. **Execution Engine**: A sequential task runner built in Node.js that traverses the node graph, passing the output data of one node as the input variable for the next.
+2. **AI Controller**: Specialized endpoints that interact with LLM providers (OpenAI, Gemini) via a structured schema to safely return strict JSON that maps directly to frontend canvas coordinates and node types.
+3. **Trigger & Action Handlers**: The logic driving actual integrations. Contains modules for receiving webhooks, running scheduled cron jobs, issuing HTTP requests, or manipulating JSON structures.
+4. **Data Persistence**: Connecting workflow schemas, topologies, and historical execution results to the database so that states are securely saved and loaded.
+
+---
+
+# Prototype Demonstration
+
+## Show the Current Progress of the Project (To Highlight in Screenshots/Live Demo)
+
+1. **The Visual Canvas (Screenshot / Live)** 
+   - Show a fully connected workflow consisting of a Trigger Node (e.g., "Webhook") trailing into two Action Nodes (e.g., "HTTP Request" -> "AI Processing"). 
+   - *Highlight*: The premium "Cyber-Noir" dark theme and glassmorphic node styling.
+
+2. **AI Workflow Generation (Live Demo)**
+   - Open the "Generate with AI" modal.
+   - Type a prompt: "Set up a flow that fetches weather data and posts it to Telegram."
+   - *Highlight*: The canvas instantly populates with the correct Webhook, HTTP, and Telegram nodes automatically connected. 
+   - Demonstrate the "Modify" feature by asking the AI to "Add an email notification at the end".
+
+3. **Workflow Execution & Interaction (Live Demo)**
+   - Click the "Test Run" button and inject a test JSON payload.
+   - *Highlight*: Show the nodes lighting up or showing loading states sequentially as the backend execution engine processes them.
+   - Open the Execution Panel to show the successful output logs per step, proving data actually flowed deeply through the system.
+
+4. **Multi-Workflow Context Switching (Screenshot / Live)**
+   - Have multiple tabs open at the top.
+   - *Highlight*: Click between tabs rapidly to demonstrate that the application instantly switches visual contexts and configurations without reloading or losing unsaved edits.
+
+5. **Dynamic Properties (Screenshot)**
+   - Select a node such as "HTTP Request" and show the right sidebar populating with standard API fields (Method, URL, Headers, Body). 
+   - Select another node such as "Telegram" and show the sidebar smoothly changing to completely different UI inputs (Bot Token, Chat ID, Message).

@@ -150,7 +150,7 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                                             const p = e.target.value;
                                             updateNodeConfig({
                                                 provider: p,
-                                                model: p === 'openai' ? 'gpt-4o' : 'gemini-3.1-flash-preview'
+                                                model: p === 'openai' ? 'gpt-4o' : 'gemini-2.5-flash'
                                             });
                                         }}
                                     >
@@ -173,7 +173,11 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                                             </>
                                         ) : (
                                             <>
-                                                <option value="gemini-3.1-flash-preview">Gemini 3.1 Flash Preview (Experimental)</option>
+                                                <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
+                                                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+                                                <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
+                                                <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                                                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                                                 <option value="gemini-1.5-flash">Gemini 1.5 Flash (Standard)</option>
                                                 <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Latest)</option>
                                                 <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
@@ -275,6 +279,15 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                                 <p className="text-[0.75rem] text-slate-500 m-0">Save this workflow first to get a permanent ID, then POST any JSON to this URL to trigger the flow.</p>
                             </div>
                             <div className="flex flex-col gap-2">
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-[0.8rem] text-slate-400 font-medium">HTTP Method</label>
+                                    <select className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" value={selectedNode.data.config?.method || 'POST'} onChange={(e) => updateNodeConfig('method', e.target.value)}>
+                                        <option value="POST">POST</option>
+                                        <option value="GET">GET</option>
+                                        <option value="PUT">PUT</option>
+                                        <option value="DELETE">DELETE</option>
+                                    </select>
+                                </div>
                                 <label className="text-[0.8rem] text-slate-400 font-medium">Expected Payload Key (optional)</label>
                                 <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="e.g. data" value={selectedNode.data.config?.payload_key || ''} onChange={(e) => updateNodeConfig('payload_key', e.target.value)} />
                             </div>
@@ -408,7 +421,46 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                     )}
 
 
-                    {['log'].includes(selectedNode.data.type) && (
+
+                    {selectedNode.data.type === 'ifElse' && (
+                        <div className="flex flex-col gap-4">
+                            <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 flex flex-col gap-2">
+                                <label className="text-[0.7rem] uppercase tracking-widest text-orange-400 font-bold">Conditional Logic</label>
+                                <p className="text-[0.75rem] text-slate-500 m-0">Evaluates a JavaScript expression and routes to true/false paths.</p>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[0.8rem] text-slate-400 font-medium">Condition (JavaScript)</label>
+                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all font-mono" placeholder="payload.age > 18" value={selectedNode.data.config?.condition || ''} onChange={(e) => updateNodeConfig('condition', e.target.value)} />
+                            </div>
+                        </div>
+                    )}
+
+                    {selectedNode.data.type === 'log' && (
+                        <div className="flex flex-col gap-4">
+                            <div className="p-4 rounded-xl bg-slate-500/10 border border-slate-500/20 flex flex-col gap-2">
+                                <label className="text-[0.7rem] uppercase tracking-widest text-slate-400 font-bold">System Log</label>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                <label className="text-[0.8rem] text-slate-400 font-medium">Message</label>
+                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all font-mono" placeholder="Logged {{variable}}" value={selectedNode.data.config?.message || ''} onChange={(e) => updateNodeConfig('message', e.target.value)} />
+                            </div>
+                        </div>
+                    )}
+
+                    {selectedNode.data.config && Object.keys(selectedNode.data.config).length > 0 &&
+                        !['http_request', 'send_email', 'delay', 'ai_model', 'save_to_database', 'webhook_trigger', 'manual_trigger', 'schedule_trigger', 'app_event', 'form_submission', 'sub_workflow_trigger', 'chat_message', 'other_ways', 'ifElse', 'log'].includes(selectedNode.data.type) && (
+                            <div className="flex flex-col gap-2 mt-4 p-4 rounded-lg border border-white/10 bg-black/20">
+                                <label className="text-[0.8rem] text-purple-400 font-bold uppercase tracking-widest">Custom / Missing Configs</label>
+                                {Object.entries(selectedNode.data.config).map(([key, val]) => (
+                                    <div className="flex flex-col gap-1 mt-2" key={key}>
+                                        <label className="text-[0.7rem] text-slate-500 font-medium capitalize">{key.replace(/_/g, ' ')}</label>
+                                        <input type="text" className="bg-black/40 border border-white/10 rounded px-2 py-1.5 text-white text-[0.85rem] outline-none focus:border-blue-500 font-mono" value={typeof val === 'object' ? JSON.stringify(val) : String(val)} onChange={(e) => updateNodeConfig(key, e.target.value)} />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                    {false && (
                         <div className="flex flex-col gap-2">
                             <label className="text-[0.8rem] text-slate-400 font-medium">Raw Config (JSON)</label>
                             <textarea

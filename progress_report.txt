@@ -1,0 +1,28 @@
+# Progress So Far
+-------------------------
+The project has undergone significant UI/UX and backend functional upgrades since the initial setup:
+
+1. **Telegram Bot Integration**: Fully functional webhook registration and real-time message processing. The system now intelligently extracts AI-generated responses to reply to users on Telegram.
+2. **UI Architecture Overhaul**: Implemented a modern, tab-based workspace allowing users to work on multiple workflows simultaneously.
+3. **Premium Navigation System**: Redesigned the top bar into a vertical floating action dock on the right side with context-aware tooltips and smart hiding logic.
+4. **AI Engine Refinement**: Added support for advanced models like Gemini 3.1 Flash and created a robust sequential execution engine.
+5. **Canvas UX Optimization**: Set default initial zoom-out levels and improved auto-layout features for complex workflows.
+
+# System Workflow
+-------------------------
+The prototype follows a highly reactive execution pattern:
+
+[INPUT] -> [TRIGGER DETECTION] -> [SEQUENTIAL PROCESSING] -> [OUTPUT]
+
+1. **Input**: A workflow is activated via an App Event (Telegram), Webhook call, or a Manual Test Run from the UI.
+2. **Trigger Detection**: The backend engine identifies the starting node and prepares the initial data payload (e.g., the text of a Telegram message or JSON from a webhook).
+3. **Processing**: The execution engine traverses the workflow "edges." It handles AI Prompting (sending data to Gemini/OpenAI), conditional logic (If/Else), and utility tasks sequentially.
+4. **Output**: Results are collected from "Result" or "AI" nodes. If the trigger was a bot, the final result is dispatched back to the external platform (Telegram) as a message or stored in the database.
+
+# Key Achievements
+-------------------------
+* **Multi-Workflow Support**: Users can now open, switch between, and manage multiple automations concurrently via a tabbed interface.
+* **Intelligent Bot Interaction**: Successfully integrated the AI engine with the Telegram API, enabling bots to understand context and reply meaningfully.
+* **Unified AI Provider System**: Created a flexible frontend and backend interface to switch between different AI models (Gemini, OpenAI) without changing workflow logic.
+* **Advanced Cyber-Noir UI**: Achieved a premium, high-fidelity design inspired by modern automation tools, featuring glassmorphism, floating controls, and responsive layouts.
+* **Robust Error Handling & Logging**: Implemented server-side diagnostic logging to track webhook hits and execution failures in real-time.
