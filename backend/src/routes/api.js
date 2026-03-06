@@ -226,7 +226,7 @@ router.get('/trigger/chat/:workflowId/history', (req, res) => {
 
 router.post('/trigger/app-event/:workflowId', async (req, res) => {
     try {
-        fs.appendFileSync('d:/upload_git_File/miniN8N/backend/requests.log', `[${new Date().toISOString()}] Received request for ${req.params.workflowId}\n`);
+        // fs.appendFileSync('requests.log', `[${new Date().toISOString()}] Received request for ${req.params.workflowId}\n`);
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
 

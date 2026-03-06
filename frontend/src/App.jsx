@@ -26,7 +26,7 @@ import TestInputModal from './components/TestInputModal';
 import PublishModal from './components/PublishModal';
 import WorkflowTabs from './components/WorkflowTabs';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 let id = 10;
 const getId = () => `dndnode_${id++}`;

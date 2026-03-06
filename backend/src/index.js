@@ -15,6 +15,13 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'Flowz Engine Running' });
 });
 
+console.log('--- Flowz Backend Starting ---');
+console.log('Environment:', process.env.NODE_ENV || 'development');
+console.log('Port:', process.env.PORT || 5000);
+if (!process.env.MONGODB_URI) {
+    console.error('CRITICAL: MONGODB_URI is not defined in environment variables.');
+}
+
 app.use('/api', apiRoutes);
 
 const PORT = process.env.PORT || 5000;
