@@ -22,8 +22,13 @@ export const generateWorkflowConfig = async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-    // Models to try in order of preference
-    const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+    // Models to try in order of preference to bypass individual quota limits
+    const modelsToTry = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash-8b"
+    ];
     let lastError = null;
 
     for (const modelName of modelsToTry) {
@@ -68,26 +73,29 @@ export const generateWorkflowConfig = async (req, res) => {
             console.error(`[AI] Error with ${modelName}:`, error.message);
             lastError = error;
 
-            // If it's not a rate limit error, don't bother trying other models (likely a prompt/auth issue)
-            if (error.status !== 429 && error.status !== 503) {
+            // If it's not a rate limit error or not-found, don't bother trying other models
+            if (error.status !== 429 && error.status !== 503 && error.status !== 404) {
                 break;
             }
-            // If it is 429/503, continue to the next model in the loop
-            console.warn(`[AI] ${modelName} rate limited or unavailable, trying next model...`);
+            console.warn(`[AI] ${modelName} unavailable, trying next model...`);
         }
     }
 
-    // If we reach here, all models failed
-    if (lastError && lastError.status === 429) {
-        return res.status(429).json({
-            error: "All AI models are currently rate-limited. Please wait a minute and try again.",
-            details: lastError.message
-        });
-    }
+    // FINAL FALLBACK: If AI is completely down or quota exceeded across all models
+    console.warn("[AI] All models failed. Returning static fallback workflow.");
 
-    return res.status(500).json({
-        error: "Failed to generate workflow configuration after multiple attempts.",
-        details: lastError?.message || "Unknown error"
+    return res.json({
+        nodes: [
+            { id: "node_1", type: "webhook_trigger", data: { label: "Incoming Webhook", config: { method: "POST" } }, position: { x: 300, y: 100 } },
+            { id: "node_2", type: "ai_model", data: { label: "AI Process", config: { provider: "google", prompt: "Summarize the input: {{input}}" } }, position: { x: 300, y: 250 } },
+            { id: "node_3", type: "log", data: { label: "Log Result", config: { message: "Workflow completed successfully" } }, position: { x: 300, y: 400 } }
+        ],
+        edges: [
+            { id: "e1", source: "node_1", target: "node_2" },
+            { id: "e2", source: "node_2", target: "node_3" }
+        ],
+        is_fallback: true,
+        note: "AI service is currently at capacity. Here is a starter template for your request."
     });
 };
 
@@ -170,15 +178,13 @@ export const modifyWorkflowConfig = async (req, res) => {
         }
     }
 
-    if (lastError && lastError.status === 429) {
-        return res.status(429).json({
-            error: "AI Quota Exceeded for modifications. Please try again in 60 seconds.",
-            details: lastError.message
-        });
-    }
+    // FALLBACK for Modification: If AI is completely down or quota exceeded.
+    // Return the original workflow so the UI doesn't crash or show a scary error.
+    console.warn("[AI] Modification failed or quota exceeded. Returning current workflow as fallback.");
 
-    res.status(500).json({
-        error: "Failed to modify workflow configuration after multiple attempts.",
-        details: lastError?.message || "Unknown error"
+    return res.json({
+        ...currentWorkflow,
+        is_fallback: true,
+        note: "AI service is currently busy. Your workflow was not modified, but you can try again shortly."
     });
 };
