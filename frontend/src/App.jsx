@@ -243,7 +243,10 @@ const BuilderCanvas = () => {
   };
 
   const applyGeneratedWorkflow = (suggestedData = null) => {
-    const data = suggestedData || generatedJsonResult;
+    // If called via onClick, suggestedData is the event object. We need to ignore it.
+    const isEvent = suggestedData && (suggestedData.nativeEvent || suggestedData.target);
+    const data = (suggestedData && !isEvent) ? suggestedData : generatedJsonResult;
+
     if (!data) return;
 
     const generatedNodes = [];
