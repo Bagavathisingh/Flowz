@@ -44,14 +44,18 @@ export const generateWorkflowConfig = async (req, res) => {
             
             Allowed Node Types & Config Schemas:
             - webhook_trigger: { "method": "GET"|"POST" }
-            - schedule_trigger: { "cron": "string" }
+            - schedule_trigger: { "interval": number } (seconds)
             - http_request: { "url": "string", "method": "GET"|"POST"|"PUT"|"DELETE" }
-            - send_email: { "to": "email", "subject": "string" }
-            - delay: { "duration_minutes": number }
-            - save_to_database: { "collection": "string" }
-            - ai_model: { "provider": "google"|"openai", "model": "string", "prompt": "Instruction with {{input}}" }
-            - ifElse: { "condition": "javascript_expression_using_payload" } (e.g. "payload.age > 18")
+            - send_email: { "to": "email", "subject": "string", "smtp_host": "string", "smtp_port": number }
+            - delay: { "duration_seconds": number }
+            - save_to_database: { "collection": "string", "connection_string": "string" }
+            - ai_model: { "provider": "google"|"openai", "model": "string", "prompt": "string", "system_prompt": "string" }
+            - ifElse: { "condition": "javascript_expression" } (e.g. "payload.age > 18")
             - log: { "message": "string" }
+            - manual_trigger: {}
+            - app_event: { "telegram_token": "string" }
+            - form_submission: { "fields": "string (JSON array)" }
+            - chat_message: { "system_prompt": "string" }
 
             Nodes must contain: id, type, data: { label, config }. Labels should be concise.
             Edges must contain: id, source, target, sourceHandle (for ifElse connections, use "true" or "false").
@@ -121,7 +125,7 @@ export const explainErrorLog = async (req, res) => {
 };
 
 export const modifyWorkflowConfig = async (req, res) => {
-    const { currentWorkflow, prompt } = req.body;
+    const { currentWorkflow, prompt, selectedNodeId } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
     const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash"];
@@ -140,17 +144,22 @@ export const modifyWorkflowConfig = async (req, res) => {
             
             Keep existing node IDs where possible.
             Ensure logic remains sound and connections are valid.
+            If a node ID "${selectedNodeId}" is provided, it means this node is currently selected by the user, so prioritize modifying this node or its direct connections if the prompt is ambiguous.
             
             Allowed Node Types & Config Schemas:
             - webhook_trigger: { "method": "GET"|"POST" }
-            - schedule_trigger: { "cron": "string" }
+            - schedule_trigger: { "interval": number } (seconds)
             - http_request: { "url": "string", "method": "GET"|"POST"|"PUT"|"DELETE" }
-            - send_email: { "to": "email", "subject": "string" }
-            - delay: { "duration_minutes": number }
-            - save_to_database: { "collection": "string" }
-            - ai_model: { "provider": "google"|"openai", "model": "string", "prompt": "Instruction with {{input}}" }
-            - ifElse: { "condition": "javascript_expression_using_payload" }
+            - send_email: { "to": "email", "subject": "string", "smtp_host": "string", "smtp_port": number }
+            - delay: { "duration_seconds": number }
+            - save_to_database: { "collection": "string", "connection_string": "string" }
+            - ai_model: { "provider": "google"|"openai", "model": "string", "prompt": "string", "system_prompt": "string" }
+            - ifElse: { "condition": "javascript_expression" }
             - log: { "message": "string" }
+            - manual_trigger: {}
+            - app_event: { "telegram_token": "string" }
+            - form_submission: { "fields": "string (JSON array)" }
+            - chat_message: { "system_prompt": "string" }
 
             Current Workflow:
             ${JSON.stringify(currentWorkflow, null, 2)}
@@ -188,3 +197,4 @@ export const modifyWorkflowConfig = async (req, res) => {
         note: "AI service is currently busy. Your workflow was not modified, but you can try again shortly."
     });
 };
+

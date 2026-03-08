@@ -1,5 +1,8 @@
 import { Handle, Position } from '@xyflow/react';
-import { Globe, Mail, Database, Clock, Trash2, CheckCircle2, XCircle, Loader2, Sparkles } from 'lucide-react';
+import {
+    Globe, Mail, Database, Clock, Trash2, CheckCircle2, XCircle, Loader2, Sparkles,
+    MousePointer2, Radio, FileEdit, ArrowRightToLine, MessageSquare, Folder, Zap
+} from 'lucide-react';
 
 const NODE_THEMES = {
     webhook_trigger: {
@@ -8,6 +11,55 @@ const NODE_THEMES = {
         bg: 'bg-emerald-500/10',
         text: 'text-emerald-500',
         border: 'border-emerald-500/20'
+    },
+    manual_trigger: {
+        color: 'slate',
+        icon: <MousePointer2 size={18} />,
+        bg: 'bg-slate-500/10',
+        text: 'text-slate-500',
+        border: 'border-slate-500/20'
+    },
+    schedule_trigger: {
+        color: 'amber',
+        icon: <Clock size={18} />,
+        bg: 'bg-amber-500/10',
+        text: 'text-amber-500',
+        border: 'border-amber-500/20'
+    },
+    app_event: {
+        color: 'purple',
+        icon: <Radio size={18} />,
+        bg: 'bg-purple-500/10',
+        text: 'text-purple-500',
+        border: 'border-purple-500/20'
+    },
+    form_submission: {
+        color: 'cyan',
+        icon: <FileEdit size={18} />,
+        bg: 'bg-cyan-500/10',
+        text: 'text-cyan-500',
+        border: 'border-cyan-500/20'
+    },
+    sub_workflow_trigger: {
+        color: 'rose',
+        icon: <ArrowRightToLine size={18} />,
+        bg: 'bg-rose-500/10',
+        text: 'text-rose-500',
+        border: 'border-rose-500/20'
+    },
+    chat_message: {
+        color: 'indigo',
+        icon: <MessageSquare size={18} />,
+        bg: 'bg-indigo-500/10',
+        text: 'text-indigo-500',
+        border: 'border-indigo-500/20'
+    },
+    other_ways: {
+        color: 'orange',
+        icon: <Folder size={18} />,
+        bg: 'bg-orange-500/10',
+        text: 'text-orange-500',
+        border: 'border-orange-500/20'
     },
     http_request: {
         color: 'sky',
@@ -43,6 +95,20 @@ const NODE_THEMES = {
         bg: 'bg-cyan-500/10',
         text: 'text-cyan-500',
         border: 'border-cyan-500/20'
+    },
+    ifElse: {
+        color: 'orange',
+        icon: <Zap size={18} />,
+        bg: 'bg-orange-500/10',
+        text: 'text-orange-500',
+        border: 'border-orange-500/20'
+    },
+    log: {
+        color: 'slate',
+        icon: <FileEdit size={18} />,
+        bg: 'bg-slate-500/10',
+        text: 'text-slate-500',
+        border: 'border-slate-500/20'
     }
 };
 

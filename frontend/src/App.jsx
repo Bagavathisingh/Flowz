@@ -217,7 +217,8 @@ const BuilderCanvas = () => {
     try {
       const { data } = await axios.post(`${API_URL}/ai/modify-workflow`, {
         currentWorkflow: { nodes, edges },
-        prompt: aiPrompt
+        prompt: aiPrompt,
+        selectedNodeId: selectedNode?.id
       });
       setGeneratedJsonResult(data);
       notify('success', 'Workflow modification suggested by AI.');
@@ -237,15 +238,19 @@ const BuilderCanvas = () => {
 
     if (data.nodes && data.edges) {
       data.nodes.forEach((n, index) => {
+        // Find if this node already exists to preserve some of its local config/data
+        const existingNode = nodes.find(oldNode => oldNode.id === n.id);
+        const existingConfig = existingNode?.data?.config || {};
+
         generatedNodes.push({
           id: n.id,
           type: 'customTask',
-          position: n.position || { x: 300 + (index % 2 === 0 ? 0 : 250), y: 100 + (index * 120) },
+          position: n.position || (existingNode?.position) || { x: 300 + (index % 2 === 0 ? 0 : 250), y: 100 + (index * 120) },
           data: {
             label: n.data?.label || n.type,
             type: n.type,
             isTrigger: n.type.toLowerCase().includes('trigger'),
-            config: n.data?.config || {}
+            config: { ...existingConfig, ...(n.data?.config || {}) }
           }
         });
       });
