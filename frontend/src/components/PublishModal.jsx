@@ -86,9 +86,13 @@ const CopyLine = ({ text }) => {
     );
 };
 
-export default function PublishModal({ isOpen, onClose, nodes, edges, triggerNode }) {
-    const [step, setStep] = useState('name');
-    const [workflowName, setWorkflowName] = useState('My Workflow');
+export default function PublishModal({ isOpen, onClose, nodes, edges, triggerNode, workflowId, defaultName }) {
+    // Helper for initial states
+    const checkSaved = () => workflowId && !workflowId.startsWith('unsaved_');
+    const isAlreadySaved = checkSaved();
+
+    const [step, setStep] = useState(isAlreadySaved ? 'publish' : 'name');
+    const [workflowName, setWorkflowName] = useState(defaultName || 'My Workflow');
     const [savedWorkflow, setSavedWorkflow] = useState(null);
     const [isPublishing, setIsPublishing] = useState(false);
     const [publishResult, setPublishResult] = useState(null);
@@ -101,11 +105,12 @@ export default function PublishModal({ isOpen, onClose, nodes, edges, triggerNod
     const btnCls = COLOR_BTN[info.color];
 
     const reset = () => {
-        setStep('name');
+        const currentlySaved = checkSaved();
+        setStep(currentlySaved ? 'publish' : 'name');
         setSavedWorkflow(null);
         setPublishResult(null);
         setError(null);
-        setWorkflowName('My Workflow');
+        setWorkflowName(defaultName || 'My Workflow');
     };
 
     const handleClose = () => { reset(); onClose(); };
@@ -115,18 +120,26 @@ export default function PublishModal({ isOpen, onClose, nodes, edges, triggerNod
         setError(null);
 
         try {
-            // 1. Save workflow to get a permanent ID
-            const saveRes = await axios.post(`${API_URL}/workflows`, {
-                name: workflowName,
-                nodes,
-                edges,
-            });
-            const wf = saveRes.data;
+            let wf;
+            if (isAlreadySaved) {
+                // Skip POST, just retrieve what the ID is (we use the passed ID)
+                // But we should ideally ensure it's up-to-date. For now, following user's 'no need to save' request strictly.
+                wf = { _id: workflowId, name: workflowName, baseUrl: API_URL.replace('/api', '') };
+            } else {
+                // 1. Save workflow to get a permanent ID
+                const saveRes = await axios.post(`${API_URL}/workflows`, {
+                    name: workflowName,
+                    nodes,
+                    edges,
+                });
+                wf = saveRes.data;
+            }
+
             setSavedWorkflow(wf);
 
-            const workflowId = wf._id;
-            const baseUrl = wf.baseUrl || `http://localhost:5000`;
-            let result = { workflowId, baseUrl };
+            const finalWorkflowId = wf._id;
+            const baseUrl = wf.baseUrl || API_URL.replace('/api', '');
+            let result = { workflowId: finalWorkflowId, baseUrl };
 
             // 2. Trigger-specific activation
             if (triggerType === 'app_event' && triggerConfig.telegram_token) {

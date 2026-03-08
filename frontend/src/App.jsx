@@ -771,6 +771,8 @@ const BuilderCanvas = () => {
         onClose={() => setShowPublishModal(false)}
         nodes={nodes}
         edges={edges}
+        workflowId={activeWorkflowId}
+        defaultName={workflowName}
         triggerNode={nodes.find(n => n.data?.isTrigger || n.data?.type?.toLowerCase().includes('trigger') || n.data?.type === 'app_event' || n.data?.type === 'form_submission' || n.data?.type === 'chat_message' || n.data?.type === 'other_ways')}
       />
 
