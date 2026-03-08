@@ -258,8 +258,25 @@ const BuilderCanvas = () => {
         const existingNode = nodes.find(oldNode => oldNode.id === n.id);
         const existingConfig = existingNode?.data?.config || {};
 
-        // AI sometimes puts type in top level, sometimes in data. Normalize here.
-        const actualType = n.type || n.data?.type || 'http_request';
+        // Type Normalization Mapping (AI often gets creative with names)
+        const typeAliases = {
+          'telegram': 'app_event',
+          'telegram_bot': 'app_event',
+          'telegram_trigger': 'app_event',
+          'gmail': 'send_email',
+          'email': 'send_email',
+          'db': 'save_to_database',
+          'mongodb': 'save_to_database',
+          'database': 'save_to_database',
+          'rest_api': 'http_request',
+          'api_call': 'http_request',
+          'wait': 'delay',
+          'condition': 'ifElse',
+          'split': 'ifElse'
+        };
+
+        const rawType = n.type || n.data?.type || 'http_request';
+        const actualType = typeAliases[rawType.toLowerCase()] || rawType;
         const actualLabel = n.data?.label || n.label || actualType;
 
         generatedNodes.push({
@@ -287,11 +304,17 @@ const BuilderCanvas = () => {
       let yOffset = 100;
 
       if (data.trigger) {
+        const tType = data.trigger.type || 'webhook_trigger';
         generatedNodes.push({
           id: 'trigger_1',
           type: 'customTask',
           position: { x: 300, y: yOffset },
-          data: { label: 'Trigger', type: data.trigger.type, isTrigger: true, config: data.trigger.config || {} }
+          data: {
+            label: 'Trigger',
+            type: tType,
+            isTrigger: true,
+            config: data.trigger.config || {}
+          }
         });
         yOffset += 150;
       }

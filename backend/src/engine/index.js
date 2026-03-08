@@ -429,16 +429,28 @@ export const runWorkflow = async (nodes, edges, triggerPayload = {}) => {
     const visited = new Set();
 
     // Improved Trigger Detection
-    const triggerNodes = nodes.filter(n => {
+    let triggerNodes = nodes.filter(n => {
         const type = n.data?.type?.toLowerCase() || '';
         return n.data?.isTrigger ||
             type.includes('trigger') ||
             ['app_event', 'form_submission', 'chat_message', 'other_ways'].includes(type);
     });
 
+    // FALLBACK: If no explicit trigger is found, use any node that has no incoming edges
     if (triggerNodes.length === 0) {
-        console.error("[ENGINE] Execution error: No trigger node found.");
-        throw new Error('No trigger node found');
+        console.warn("[ENGINE] No explicit trigger found. Falling back to edge analysis...");
+        const targetIds = new Set(edges.map(e => e.target));
+        triggerNodes = nodes.filter(n => !targetIds.has(n.id));
+    }
+
+    if (triggerNodes.length === 0 && nodes.length > 0) {
+        // Absolute fallback: just start with the first node
+        triggerNodes = [nodes[0]];
+    }
+
+    if (triggerNodes.length === 0) {
+        console.error("[ENGINE] Execution error: No nodes found in workflow.");
+        throw new Error('Workflow is empty or has no starting point');
     }
 
     console.log(`[ENGINE] Found ${triggerNodes.length} Trigger Node(s)`);
