@@ -24,10 +24,10 @@ export const generateWorkflowConfig = async (req, res) => {
 
     // Models to try in order of preference to bypass individual quota limits
     const modelsToTry = [
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
         "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash-8b"
+        "gemini-2.0-flash-lite"
     ];
     let lastError = null;
 
@@ -103,7 +103,7 @@ export const explainErrorLog = async (req, res) => {
     try {
         const { logs, error } = req.body;
         const model = genAI.getGenerativeModel({
-            model: "gemini-2.0-flash",
+            model: "gemini-2.5-flash",
             generationConfig: { responseMimeType: "application/json" }
         });
 
@@ -124,7 +124,7 @@ export const modifyWorkflowConfig = async (req, res) => {
     const { currentWorkflow, prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-    const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash"];
+    const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash"];
     let lastError = null;
 
     for (const modelName of modelsToTry) {

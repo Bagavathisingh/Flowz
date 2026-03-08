@@ -173,15 +173,11 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                                             </>
                                         ) : (
                                             <>
-                                                <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
-                                                <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
-                                                <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
-                                                <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                                                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                                                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Standard)</option>
-                                                <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash (Latest)</option>
-                                                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                                                <option value="gemini-pro">Gemini 1.0 Pro (Most Stable)</option>
+                                                <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
+                                                <option value="gemini-2.5-pro">Gemini 2.5 Pro (Powerful)</option>
+                                                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                                                <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+                                                <option value="gemini-2.5-flash-native-audio-preview-12-2025">Gemini 2.5 Flash Native Audio</option>
                                             </>
                                         )}
                                     </select>

@@ -206,7 +206,7 @@ export const executeAction = async (action, context) => {
                     ? (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || (process.env.OPENAI_API_KEY?.startsWith('AIza') ? process.env.OPENAI_API_KEY : undefined))
                     : process.env.OPENAI_API_KEY
             );
-            let modelName = action.config?.model || (provider === 'google' ? 'gemini-3.1-flash-preview' : 'gpt-4o');
+            let modelName = action.config?.model || (provider === 'google' ? 'gemini-2.5-flash' : 'gpt-4o');
             console.log(`[AI ENGINE] Node "${action.label}" - Provider: ${provider}, Model: ${modelName}`);
 
             let finalPrompt = action.config?.prompt || '';

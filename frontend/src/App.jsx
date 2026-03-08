@@ -641,6 +641,7 @@ const BuilderCanvas = () => {
 
       {selectedNode && (
         <PropertiesSidebar
+          key={selectedNode.id}
           selectedNode={selectedNode}
           setSelectedNode={setSelectedNode}
           updateNodeConfig={updateNodeConfig}

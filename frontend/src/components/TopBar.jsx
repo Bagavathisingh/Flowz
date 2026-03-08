@@ -1,10 +1,8 @@
 import { Save, History, Sparkles, Play, Loader2, LayoutTemplate, Plus } from 'lucide-react';
 
 export default function TopBar({ setShowSaveModal, openHistoryModal, setShowAiModal, handleTestRun, isExecuting, onLayout, setIsSidebarOpen, isSidebarOpen, hasNodes, isPropertiesOpen }) {
-    if (isPropertiesOpen) return null;
-
     return (
-        <div className="absolute top-6 right-6 flex flex-col gap-3 pointer-events-auto z-[40]">
+        <div className={`absolute top-6 right-6 flex flex-col gap-3 pointer-events-auto z-[40] transition-all duration-300 ${isPropertiesOpen ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
             {/* Action Buttons: Individual Floating Elements */}
             <button
                 className="group relative p-3.5 bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl text-slate-400 hover:text-white transition-all active:scale-90 cursor-pointer border-none"
