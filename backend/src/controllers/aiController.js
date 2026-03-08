@@ -105,21 +105,36 @@ export const generateWorkflowConfig = async (req, res) => {
 
 export const explainErrorLog = async (req, res) => {
     try {
-        const { logs, error } = req.body;
+        const { logs, error, currentWorkflow } = req.body;
         const model = genAI.getGenerativeModel({
             model: "gemini-2.5-flash",
             generationConfig: { responseMimeType: "application/json" }
         });
 
-        const prompt = `You explain automation execution errors. Given the logs and error message, output JSON with 'explanation', 'cause', and 'fix' keys.
-        Logs: ${JSON.stringify(logs)}
-        Error: ${error}
+        const prompt = `You are a professional workflow debugger. An error occurred while executing the following workflow.
+        
+        Current Workflow:
+        ${JSON.stringify(currentWorkflow, null, 2)}
+        
+        Execution Logs:
+        ${JSON.stringify(logs, null, 2)}
+        
+        Error Message:
+        ${error}
+        
+        Analyze the error and provide a fix. 
+        Output JSON with:
+        - 'explanation': Clear summary of what went wrong.
+        - 'cause': The specific node or configuration that caused it.
+        - 'fix': Human-readable instruction on how to fix it.
+        - 'suggestedFixWorkflow': (Optional) An updated nodes and edges JSON that fixes the problem. Use original node IDs.
         
         IMPORTANT: Return ONLY the JSON object.`;
 
         const result = await model.generateContent(prompt);
         res.json(JSON.parse(cleanJson(result.response.text())));
     } catch (error) {
+        console.error("[AI] Debug error:", error);
         res.status(500).json({ error: error.message });
     }
 };

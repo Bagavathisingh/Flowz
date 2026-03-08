@@ -63,6 +63,18 @@ const BuilderCanvas = () => {
   const [openWorkflows, setOpenWorkflows] = useState([]);
   const [activeWorkflowId, setActiveWorkflowId] = useState(null);
 
+  // AI Debug Assistant State
+  const [sidebarMode, setSidebarMode] = useState('nodes');
+  const [debugMessages, setDebugMessages] = useState([]);
+  const [isExplainingError, setIsExplainingError] = useState(false);
+
+  // Clear "new" flag on debug messages when switching to chat mode
+  useEffect(() => {
+    if (sidebarMode === 'chat' && isSidebarOpen) {
+      setDebugMessages(prev => prev.map(m => ({ ...m, isNew: false })));
+    }
+  }, [sidebarMode, isSidebarOpen]);
+
   const reactFlowWrapper = useRef(null);
   const { screenToFlowPosition, setViewport } = useReactFlow();
 
@@ -230,9 +242,10 @@ const BuilderCanvas = () => {
     }
   };
 
-  const applyGeneratedWorkflow = () => {
-    if (!generatedJsonResult) return;
-    const data = generatedJsonResult;
+  const applyGeneratedWorkflow = (suggestedData = null) => {
+    const data = suggestedData || generatedJsonResult;
+    if (!data) return;
+
     const generatedNodes = [];
     const generatedEdges = [];
 
@@ -302,8 +315,14 @@ const BuilderCanvas = () => {
     setGeneratedJsonResult(null);
     setSelectedNode(null); // Clear selected node to hide property panel
     setAiPrompt('');
-    notify('success', 'Workflow applied to canvas.', 'Success');
+    if (!suggestedData) notify('success', 'Workflow applied to canvas.', 'Success');
     setTimeout(() => setViewport({ x: 0, y: 0, zoom: 0.6 }), 100);
+  };
+
+  const onApplyFix = (suggestedFix) => {
+    applyGeneratedWorkflow(suggestedFix);
+    setDebugMessages(prev => [...prev, { role: 'assistant', text: 'Auto-fix applied successfully! You can try running the workflow again.' }]);
+    notify('success', 'AI suggested fix applied to canvas.');
   };
 
   // Open the test input modal first — actual execution happens after user fills inputs
@@ -349,6 +368,38 @@ const BuilderCanvas = () => {
 
       if (res.data.status === 'failure') {
         notify('error', res.data.error, 'Workflow Execution Failed');
+
+        // AUTO-DEBUG: Call Explain Error API
+        setIsSidebarOpen(true);
+        setSidebarMode('chat');
+        setIsExplainingError(true);
+        setDebugMessages([{ role: 'assistant', text: `⚠️ I've detected a failure in node "${nodeLogs.find(l => l.status === 'failure')?.nodeId}". Analyzing the cause...` }]);
+
+        try {
+          const debugRes = await axios.post(`${API_URL}/ai/explain-error`, {
+            logs: nodeLogs,
+            error: res.data.error,
+            currentWorkflow: { nodes, edges }
+          });
+
+          const { explanation, cause, fix, suggestedFixWorkflow } = debugRes.data;
+
+          setDebugMessages(prev => [
+            ...prev,
+            {
+              role: 'assistant',
+              text: `Explanation: ${explanation}\n\nCause: ${cause}\n\nFix: ${fix}`,
+              suggestedFix: suggestedFixWorkflow,
+              isNew: true
+            }
+          ]);
+        } catch (err) {
+          console.error("AI Debugging failed:", err);
+          setDebugMessages(prev => [...prev, { role: 'assistant', text: "Sorry, I encountered an error while trying to analyze the execution failure." }]);
+        } finally {
+          setIsExplainingError(false);
+        }
+
       } else {
         notify('success', 'All nodes executed successfully!', 'Success');
       }
@@ -567,7 +618,15 @@ const BuilderCanvas = () => {
 
   return (
     <div className="flex h-screen w-screen bg-[#020617] text-slate-200 font-['Outfit'] overflow-hidden relative">
-      <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
+      <Sidebar
+        isOpen={isSidebarOpen}
+        setIsOpen={setIsSidebarOpen}
+        sidebarMode={sidebarMode}
+        setSidebarMode={setSidebarMode}
+        debugMessages={debugMessages}
+        onApplyFix={onApplyFix}
+        isExplainingError={isExplainingError}
+      />
 
       <div className="flex-1 relative bg-[radial-gradient(circle_at_50%_50%,rgba(30,41,59,0.5)_1px,transparent_1px)] bg-[size:24px_24px]" ref={reactFlowWrapper}>
         {/* Floating Top Header (Tabs) */}
