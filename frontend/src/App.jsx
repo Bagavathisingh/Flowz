@@ -258,15 +258,19 @@ const BuilderCanvas = () => {
         const existingNode = nodes.find(oldNode => oldNode.id === n.id);
         const existingConfig = existingNode?.data?.config || {};
 
+        // AI sometimes puts type in top level, sometimes in data. Normalize here.
+        const actualType = n.type || n.data?.type || 'http_request';
+        const actualLabel = n.data?.label || n.label || actualType;
+
         generatedNodes.push({
           id: n.id,
           type: 'customTask',
           position: n.position || (existingNode?.position) || { x: 300 + (index % 2 === 0 ? 0 : 250), y: 100 + (index * 120) },
           data: {
-            label: n.data?.label || n.type,
-            type: n.type,
-            isTrigger: n.type.toLowerCase().includes('trigger'),
-            config: { ...existingConfig, ...(n.data?.config || {}) }
+            label: actualLabel,
+            type: actualType,
+            isTrigger: actualType.toLowerCase().includes('trigger') || ['app_event', 'form_submission', 'chat_message'].includes(actualType),
+            config: { ...existingConfig, ...(n.data?.config || n.config || {}) }
           }
         });
       });
@@ -351,7 +355,7 @@ const BuilderCanvas = () => {
         payload: testPayload
       });
 
-      const { nodeLogs } = res.data;
+      const { nodeLogs = [] } = res.data;
 
       // SEQUENTIAL ANIMATION per node
       for (const log of nodeLogs) {
@@ -376,7 +380,8 @@ const BuilderCanvas = () => {
         setIsSidebarOpen(true);
         setSidebarMode('chat');
         setIsExplainingError(true);
-        setDebugMessages([{ role: 'assistant', text: `⚠️ I've detected a failure in node "${nodeLogs.find(l => l.status === 'failure')?.nodeId}". Analyzing the cause...` }]);
+        const failingNodeId = nodeLogs.find(l => l.status === 'failure')?.nodeId || 'Unknown Node';
+        setDebugMessages([{ role: 'assistant', text: `⚠️ I've detected a failure in node "${failingNodeId}". Analyzing the cause...` }]);
 
         try {
           const debugRes = await axios.post(`${API_URL}/ai/explain-error`, {

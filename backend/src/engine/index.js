@@ -183,12 +183,15 @@ export const executeAction = async (action, context) => {
         case 'http_request':
             const url = action.config?.url || 'https://jsonplaceholder.typicode.com/posts/1';
             const method = action.config?.method || 'GET';
+            // Use custom body if provided by AI/User, otherwise fallback to trigger payload
+            const body = action.config?.body || action.config?.data || (method !== 'GET' ? context.trigger.payload : undefined);
+
             try {
                 const response = await axios({
                     method,
                     url,
-                    data: method !== 'GET' ? context.trigger.payload : undefined,
-                    timeout: 5000
+                    data: body,
+                    timeout: 10000 // Increased timeout for external APIs
                 });
                 return {
                     statusCode: response.status,

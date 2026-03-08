@@ -158,29 +158,32 @@ export const modifyWorkflowConfig = async (req, res) => {
             Modify the provided workflow (nodes and edges) based on the user's instructions.
             
             Keep existing node IDs where possible.
-            Ensure logic remains sound and connections are valid.
-            If a node ID "${selectedNodeId}" is provided, it means this node is currently selected by the user, so prioritize modifying this node or its direct connections if the prompt is ambiguous.
+            If a node ID "${selectedNodeId}" is provided, it means this node is currently selected by the user. Prioritize modifying this node if the prompt is ambiguous.
             
-            Allowed Node Types & Config Schemas:
+            CRITICAL - Node Structure:
+            Each node MUST have these top-level fields:
+            - "id": string
+            - "type": MUST be one of the Allowed Types below
+            - "data": { "label": "string", "config": { ... } }
+            
+            Allowed Node Types & Their Config Keys:
             - webhook_trigger: { "method": "GET"|"POST" }
-            - schedule_trigger: { "interval": number } (seconds)
-            - http_request: { "url": "string", "method": "GET"|"POST"|"PUT"|"DELETE" }
-            - send_email: { "to": "email", "subject": "string", "smtp_host": "string", "smtp_port": number }
+            - schedule_trigger: { "interval": number }
+            - http_request: { "url": "string", "method": "GET"|"POST", "body": "string" }
+            - send_email: { "to": "string", "subject": "string" }
             - delay: { "duration_seconds": number }
-            - save_to_database: { "collection": "string", "connection_string": "string" }
-            - ai_model: { "provider": "google"|"openai", "model": "string", "prompt": "string", "system_prompt": "string" }
-            - ifElse: { "condition": "javascript_expression" }
+            - save_to_database: { "collection": "string" }
+            - ai_model: { "provider": "google"|"openai", "prompt": "string", "system_prompt": "string" }
+            - ifElse: { "condition": "string" }
             - log: { "message": "string" }
             - manual_trigger: {}
             - app_event: { "telegram_token": "string" }
-            - form_submission: { "fields": "string (JSON array)" }
-            - chat_message: { "system_prompt": "string" }
-
+            - form_submission: { "fields": "string" }
+            
             Current Workflow:
             ${JSON.stringify(currentWorkflow, null, 2)}
             
-            Return ONLY valid JSON.
-            Format: { "nodes": [...], "edges": [...] }`;
+            Return ONLY valid JSON in format: { "nodes": [...], "edges": [...] }`;
 
             const result = await model.generateContent([
                 { text: systemPrompt },
