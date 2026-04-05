@@ -17,9 +17,19 @@ const workflowSchema = new mongoose.Schema({
         ref: 'User',
         required: false
     },
+    workspaceId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Workspace',
+        default: null,
+        index: true
+    },
     name: {
         type: String,
         required: true
+    },
+    isPublished: {
+        type: Boolean,
+        default: false
     },
     isActive: {
         type: Boolean,

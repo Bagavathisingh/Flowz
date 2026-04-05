@@ -7,7 +7,7 @@ import { useState, useRef, useEffect } from 'react';
 
 export default function Sidebar({
     isOpen, setIsOpen, sidebarMode = 'nodes', setSidebarMode,
-    debugMessages = [], onApplyFix, isExplainingError
+    debugMessages = [], onSendMessage, onApplyFix, isExplainingError
 }) {
     const chatEndRef = useRef(null);
     const [userMessage, setUserMessage] = useState('');
@@ -143,8 +143,8 @@ export default function Sidebar({
                                 debugMessages.map((msg, i) => (
                                     <div key={i} className={`flex flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                                         <div className={`max-w-[85%] p-4 rounded-2xl text-[0.82rem] leading-relaxed ${msg.role === 'user'
-                                                ? 'bg-blue-600 text-white rounded-tr-none'
-                                                : 'bg-slate-900 border border-white/10 text-slate-300 rounded-tl-none'
+                                            ? 'bg-blue-600 text-white rounded-tr-none'
+                                            : 'bg-slate-900 border border-white/10 text-slate-300 rounded-tl-none'
                                             }`}>
                                             {msg.role === 'assistant' && (
                                                 <div className="flex items-center gap-2 mb-2 text-purple-400 font-bold uppercase tracking-tighter text-[0.65rem]">
@@ -192,11 +192,21 @@ export default function Sidebar({
                                         className="flex-1 bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-white text-xs outline-none focus:border-purple-500/40 transition-all font-medium"
                                         value={userMessage}
                                         onChange={(e) => setUserMessage(e.target.value)}
-                                        onKeyDown={(e) => e.key === 'Enter' && userMessage.trim() && (setUserMessage(''), debugMessages.push({ role: 'user', text: userMessage }))}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && userMessage.trim()) {
+                                                onSendMessage(userMessage);
+                                                setUserMessage('');
+                                            }
+                                        }}
                                     />
                                     <button
-                                        className="bg-white/5 border border-white/10 text-slate-400 p-3 rounded-xl hover:bg-white/10 hover:text-white transition-all cursor-pointer"
-                                        onClick={() => userMessage.trim() && (setUserMessage(''), debugMessages.push({ role: 'user', text: userMessage }))}
+                                        className="bg-white/5 border border-white/10 text-slate-400 p-3 rounded-xl hover:bg-white/10 hover:text-white transition-all cursor-pointer flex items-center justify-center"
+                                        onClick={() => {
+                                            if (userMessage.trim()) {
+                                                onSendMessage(userMessage);
+                                                setUserMessage('');
+                                            }
+                                        }}
                                     >
                                         <Send size={16} />
                                     </button>

@@ -1,90 +1,227 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
-
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
-@layer base {
-  body {
-    background-color: #020617;
-    color: #e2e8f0;
-    overflow: hidden;
-    font-family: 'Outfit', sans-serif;
-  }
+/* ── Design Tokens ──────────────────────────────────────────── */
+:root {
+  --bg-void:       #07090f;
+  --bg-canvas:     #0a0d14;
+  --bg-panel:      #0d1117;
+  --bg-card:       rgba(13, 17, 27, 0.85);
+  --bg-glass:      rgba(255, 255, 255, 0.03);
+
+  --cyan:          #00d4ff;
+  --cyan-dim:      rgba(0, 212, 255, 0.15);
+  --cyan-glow:     rgba(0, 212, 255, 0.35);
+  --violet:        #7c3aed;
+  --violet-dim:    rgba(124, 58, 237, 0.15);
+  --violet-glow:   rgba(124, 58, 237, 0.4);
+  --amber:         #f59e0b;
+  --amber-dim:     rgba(245, 158, 11, 0.15);
+  --green:         #10b981;
+  --green-dim:     rgba(16, 185, 129, 0.15);
+  --red:           #ef4444;
+  --red-dim:       rgba(239, 68, 68, 0.15);
+
+  --border:        rgba(255, 255, 255, 0.06);
+  --border-hover:  rgba(255, 255, 255, 0.12);
+  --border-active: rgba(0, 212, 255, 0.4);
+
+  --text-primary:   #e8edf5;
+  --text-secondary: #7a8499;
+  --text-muted:     #3d4556;
+
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-head: 'Syne', sans-serif;
+  --font-body: 'Inter', sans-serif;
+
+  --radius-sm:  8px;
+  --radius-md:  12px;
+  --radius-lg:  18px;
+  --radius-xl:  24px;
+
+  --shadow-card:  0 4px 24px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255,255,255,0.04) inset;
+  --shadow-cyan:  0 0 20px rgba(0, 212, 255, 0.3), 0 0 60px rgba(0, 212, 255, 0.1);
+  --shadow-violet:0 0 20px rgba(124, 58, 237, 0.35), 0 0 60px rgba(124, 58, 237, 0.12);
 }
 
-@keyframes progress {
-  from {
-    width: 100%;
-  }
-
-  to {
-    width: 0%;
-  }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideLeft {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
-/* Maintain generic handle styles or overwrite via tailwind inside components */
-
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
+/* ── Base ────────────────────────────────────────────────────── */
 * {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  box-sizing: border-box;
 }
 
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+/* ── Scrollbars ─────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.08); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+*                          { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar              { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Glass surface ─────────────────────────────────────────── */
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border);
+}
+
+.glass-heavy {
+  background: rgba(10, 13, 20, 0.92);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid var(--border);
+}
+
+/* ── Gradient text ─────────────────────────────────────────── */
+.grad-cyan    { background: linear-gradient(135deg, #00d4ff, #0097b2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.grad-violet  { background: linear-gradient(135deg, #a78bfa, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.grad-aurora  { background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 60%, #f59e0b 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
+/* ── Animated gradient border (shimmer) ────────────────────── */
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes border-spin {
+  to { --angle: 360deg; }
+}
+.gradient-border {
+  position: relative;
+  isolation: isolate;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--angle), #00d4ff, #7c3aed, #f59e0b, #00d4ff);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: border-spin 4s linear infinite;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.gradient-border:hover::before,
+.gradient-border.active::before { opacity: 1; }
+
+/* ── Node status glow pulses ───────────────────────────────── */
+@keyframes glow-cyan {
+  0%,100% { box-shadow: 0 0 8px rgba(0,212,255,0.4), 0 0 24px rgba(0,212,255,0.15); }
+  50%      { box-shadow: 0 0 16px rgba(0,212,255,0.7), 0 0 48px rgba(0,212,255,0.25); }
+}
+@keyframes glow-violet {
+  0%,100% { box-shadow: 0 0 8px rgba(124,58,237,0.4), 0 0 24px rgba(124,58,237,0.15); }
+  50%      { box-shadow: 0 0 16px rgba(124,58,237,0.7), 0 0 48px rgba(124,58,237,0.25); }
+}
+@keyframes glow-green {
+  0%,100% { box-shadow: 0 0 8px rgba(16,185,129,0.5), 0 0 24px rgba(16,185,129,0.15); }
+  50%      { box-shadow: 0 0 16px rgba(16,185,129,0.8), 0 0 48px rgba(16,185,129,0.25); }
+}
+@keyframes glow-red {
+  0%,100% { box-shadow: 0 0 8px rgba(239,68,68,0.5), 0 0 24px rgba(239,68,68,0.15); }
+  50%      { box-shadow: 0 0 16px rgba(239,68,68,0.8), 0 0 48px rgba(239,68,68,0.25); }
+}
+.node-running  { animation: glow-cyan 1.5s ease-in-out infinite !important; }
+.node-success  { animation: glow-green 2s ease-in-out 1 forwards !important; }
+.node-error    { animation: glow-red   2s ease-in-out 1 forwards !important; }
+
+/* ── Slide/fade keyframes ──────────────────────────────────── */
+@keyframes slideUp    { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+@keyframes slideDown  { from { opacity:0; transform:translateY(-12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes slideLeft  { from { opacity:0; transform:translateX(24px); } to { opacity:1; transform:translateX(0); } }
+@keyframes slideRight { from { opacity:0; transform:translateX(-24px); } to { opacity:1; transform:translateX(0); } }
+@keyframes fadeIn     { from { opacity:0; } to { opacity:1; } }
+@keyframes scaleIn    { from { opacity:0; transform:scale(0.94); } to { opacity:1; transform:scale(1); } }
+@keyframes progress   { from { width:100%; } to { width:0%; } }
+@keyframes shimmer    {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+@keyframes typewriter {
+  from { width:0; }
+  to   { width:100%; }
+}
+@keyframes blink-caret {
+  0%,100% { border-color: transparent; }
+  50%     { border-color: var(--cyan); }
+}
+@keyframes spin-slow   { to { transform: rotate(360deg); } }
+@keyframes float       { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+@keyframes tab-appear  { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+
+/* ── Shimmer button ────────────────────────────────────────── */
+.btn-shimmer {
+  background: linear-gradient(90deg,
+    var(--violet) 0%, var(--cyan) 45%, var(--violet) 55%, var(--violet) 100%
+  );
+  background-size: 200% auto;
+  animation: shimmer 3s linear infinite;
+}
+
+/* ── Input base ────────────────────────────────────────────── */
+.flowz-input {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  outline: none;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 0.875rem;
+}
+.flowz-input:focus {
+  border-color: var(--border-active);
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08);
+}
+.flowz-input::placeholder { color: var(--text-muted); font-size: 0.82rem; }
+
+/* ── ReactFlow overrides ──────────────────────────────────── */
+.react-flow__background { background: var(--bg-canvas) !important; animation: bg-drift 60s linear infinite; }
+@keyframes bg-drift {
+  0% { background-position: 0 0; }
+  100% { background-position: 100px 100px; }
+}
+.react-flow__background pattern circle { 
+  r: 1.2;
+  fill: var(--cyan);
+  opacity: 0.35;
+}
+.react-flow__controls { background: rgba(10,13,20,0.85) !important; border: 1px solid var(--border) !important; border-radius: var(--radius-md) !important; backdrop-filter: blur(16px) !important; }
+.react-flow__controls-button { background: transparent !important; border: none !important; color: var(--text-secondary) !important; }
+.react-flow__controls-button:hover { background: rgba(255,255,255,0.05) !important; color: var(--text-primary) !important; }
+.react-flow__minimap { display: none; }
+.react-flow__edge-path { stroke: rgba(0,212,255,0.35) !important; stroke-width: 1.5 !important; }
+.react-flow__edge.selected .react-flow__edge-path { stroke: var(--cyan) !important; }
+.react-flow__handle { transition: transform 0.15s ease, box-shadow 0.15s ease !important; }
+.react-flow__handle:hover { transform: scale(1.4) !important; box-shadow: 0 0 8px var(--cyan-glow) !important; }
+
+/* ── Execution timeline node ───────────────────────────────── */
+.timeline-node-enter {
+  animation: slideRight 0.3s ease forwards;
+}
+
+/* ── Tab active underline ──────────────────────────────────── */
+.tab-active-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--violet));
+  border-radius: 2px 2px 0 0;
+  animation: scaleIn 0.2s ease;
 }

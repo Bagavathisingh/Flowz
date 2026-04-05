@@ -1,9 +1,17 @@
 import { Save, History, Sparkles, Play, Loader2, LayoutTemplate, Plus } from 'lucide-react';
+import WorkspaceSwitcher from './WorkspaceSwitcher';
 
 export default function TopBar({ setShowSaveModal, openHistoryModal, setShowAiModal, handleTestRun, isExecuting, onLayout, setIsSidebarOpen, isSidebarOpen, hasNodes, isPropertiesOpen }) {
     return (
-        <div className={`absolute top-6 right-6 flex flex-col gap-3 pointer-events-auto z-[40] transition-all duration-300 ${isPropertiesOpen ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
-            {/* Action Buttons: Individual Floating Elements */}
+        <>
+            {/* ── Workspace Switcher — top-left floating pill ── */}
+            <div className="absolute top-6 left-6 z-[40] pointer-events-auto">
+                <WorkspaceSwitcher />
+            </div>
+
+            {/* Action Buttons — right side floating column */}
+            <div className={`absolute top-6 right-6 flex flex-col gap-3 pointer-events-auto z-[40] transition-all duration-300 ${isPropertiesOpen ? 'opacity-0 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
+            {/* Save button */}
             <button
                 className="group relative p-3.5 bg-slate-900/60 backdrop-blur-xl border border-white/5 rounded-2xl shadow-2xl text-slate-400 hover:text-white transition-all active:scale-90 cursor-pointer border-none"
                 onClick={() => setShowSaveModal(true)}
@@ -78,6 +86,7 @@ export default function TopBar({ setShowSaveModal, openHistoryModal, setShowAiMo
                     Add Step
                 </span>
             </button>
-        </div>
+            </div>  {/* end right-side column */}
+        </>
     );
 }

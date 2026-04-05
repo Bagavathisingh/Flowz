@@ -1,6 +1,20 @@
-import { X, CheckCircle2, XCircle, Clock, Info, Eye, EyeOff, Sparkles, Plus } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Clock, Info, Eye, EyeOff, Sparkles, Activity, AlertCircle } from 'lucide-react';
 import { useState } from 'react';
 
+// ── Shared Config Field ───────────────────────────────────────────────────────
+const ConfigField = ({ label, children, description }) => (
+    <div className="flex flex-col gap-1.5 mb-4">
+        <label className="text-[0.65rem] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            {label}
+        </label>
+        {children}
+        {description && (
+            <p className="text-[0.65rem] m-0 mt-1" style={{ color: 'var(--text-muted)' }}>{description}</p>
+        )}
+    </div>
+);
+
+// ── Main Sidebar ─────────────────────────────────────────────────────────────
 export default function PropertiesSidebar({ selectedNode, setSelectedNode, updateNodeConfig }) {
     if (!selectedNode) return null;
 
@@ -9,40 +23,70 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
     const [showAiKey, setShowAiKey] = useState(false);
 
     return (
-        <div className="absolute top-0 right-0 w-80 h-screen bg-slate-900/95 backdrop-blur-xl border-l border-white/10 flex flex-col z-30 shadow-[-10px_0_30px_rgba(0,0,0,0.5)] animate-[slideLeft_0.3s_ease]">
-            <div className="p-5 flex items-center justify-between border-b border-white/10 text-[1.2rem] font-semibold text-white">
-                <h3 className="m-0 text-xl font-bold">Node Properties</h3>
-                <button className="bg-transparent border-none text-slate-400 p-1 rounded hover:bg-white/5 hover:text-white transition-colors" onClick={() => setSelectedNode(null)}>
-                    <X size={20} />
+        <div
+            className="absolute top-4 right-4 bottom-4 z-50 flex flex-col pointer-events-auto"
+            style={{
+                width: 340,
+                background: 'linear-gradient(145deg, rgba(13,17,27,0.95), rgba(7,9,15,0.98))',
+                backdropFilter: 'blur(32px)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-xl)',
+                boxShadow: '0 16px 64px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.04) inset',
+                animation: 'slideLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+        >
+            {/* ── Header ── */}
+            <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+                <h3 className="m-0 text-sm font-bold" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-head)' }}>
+                    Node Settings
+                </h3>
+                <button
+                    className="flex-shrink-0"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 8, padding: 6, cursor: 'pointer', color: 'var(--text-muted)', lineHeight: 0, transition: 'all 0.15s ease' }}
+                    onClick={() => setSelectedNode(null)}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                >
+                    <X size={14} />
                 </button>
             </div>
-            <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-6">
 
-                {/* Status Section */}
+            {/* ── Body ── */}
+            <div className="flex-1 overflow-y-auto p-5 pb-8 flex flex-col gap-6 no-scrollbar">
+                
+                {/* Status Block */}
                 {executionStatus && (
-                    <div className={`p-4 rounded-xl border flex flex-col gap-2 ${executionStatus === 'success' ? 'bg-emerald-500/10 border-emerald-500/20' :
-                        executionStatus === 'failure' ? 'bg-red-500/10 border-red-500/20' :
-                            'bg-blue-500/10 border-blue-500/20'
-                        }`}>
-                        <div className="flex items-center gap-2 font-semibold">
-                            {executionStatus === 'success' && <CheckCircle2 size={16} className="text-emerald-500" />}
-                            {executionStatus === 'failure' && <XCircle size={16} className="text-red-500" />}
-                            {executionStatus === 'loading' && <Clock size={16} className="text-blue-500 animate-pulse" />}
-                            <span className="capitalize">{executionStatus === 'loading' ? 'Executing...' : executionStatus}</span>
+                    <div className="rounded-2xl p-4 flex flex-col gap-3"
+                        style={{
+                            background: executionStatus === 'success' ? 'rgba(16,185,129,0.08)' :
+                                executionStatus === 'failure' ? 'rgba(239,68,68,0.08)' : 'rgba(0,212,255,0.08)',
+                            border: `1px solid ${
+                                executionStatus === 'success' ? 'rgba(16,185,129,0.2)' :
+                                executionStatus === 'failure' ? 'rgba(239,68,68,0.2)' : 'rgba(0,212,255,0.2)'
+                            }`
+                        }}>
+                        <div className="flex items-center gap-2">
+                            {executionStatus === 'success' && <CheckCircle2 size={14} className="text-[#10b981]" />}
+                            {executionStatus === 'failure' && <XCircle size={14} className="text-[#ef4444]" />}
+                            {executionStatus === 'loading' && <Activity size={14} className="text-[#00d4ff] animate-pulse" />}
+                            <span className="text-[0.65rem] font-black uppercase tracking-widest"
+                                  style={{ color: executionStatus === 'success' ? '#10b981' : executionStatus === 'failure' ? '#ef4444' : '#00d4ff', fontFamily: 'var(--font-mono)' }}>
+                                {executionStatus === 'loading' ? 'Executing' : executionStatus}
+                            </span>
                         </div>
                         {executionResult && (
-                            <div className="mt-2 text-xs font-mono text-slate-300 break-all bg-black/40 p-2 rounded max-h-[150px] overflow-auto">
-                                <span className="text-slate-500 mb-1 block">Output Data:</span>
+                            <div className="mt-1 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                <p className="text-[0.6rem] font-black uppercase tracking-widest m-0 mb-1.5" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Output</p>
                                 {executionResult.previewUrl ? (
-                                    <div className="flex flex-col gap-2">
-                                        <p>Email Sent Successfully!</p>
-                                        <a href={executionResult.previewUrl} target="_blank" rel="noreferrer" className="text-blue-400 underline hover:text-blue-300">
-                                            View Sent Email Preview
+                                    <div className="flex flex-col gap-1.5">
+                                        <span className="text-[0.7rem] text-[#10b981]">Email Sent Successfully</span>
+                                        <a href={executionResult.previewUrl} target="_blank" rel="noreferrer" className="text-[0.7rem] underline" style={{ color: '#00d4ff' }}>
+                                            View Preview
                                         </a>
                                     </div>
                                 ) : (
-                                    <pre className="m-0 text-[0.75rem]">
-                                        {typeof executionResult === 'object' ? JSON.stringify(executionResult, null, 2) : executionResult}
+                                    <pre className="text-[0.7rem] m-0 max-h-32 overflow-y-auto no-scrollbar whitespace-pre-wrap break-all" style={{ color: executionStatus === 'failure' ? '#fca5a5' : '#6ee7b7', fontFamily: 'var(--font-mono)' }}>
+                                        {typeof executionResult === 'object' ? JSON.stringify(executionResult, null, 2) : String(executionResult)}
                                     </pre>
                                 )}
                             </div>
@@ -50,425 +94,240 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                     </div>
                 )}
 
-                <div className="flex flex-col gap-3">
-                    <label className="text-[0.9rem] text-slate-400 font-medium">Display Label</label>
-                    <input type="text" value={selectedNode.data.label} disabled className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] disabled:opacity-50 disabled:cursor-not-allowed outline-none" />
+                {/* Info block */}
+                <div className="flex flex-col gap-4">
+                    <ConfigField label="Display Label">
+                        <input
+                            type="text"
+                            value={selectedNode.data.label}
+                            disabled
+                            className="flowz-input disabled:opacity-50"
+                        />
+                    </ConfigField>
+                    <ConfigField label="Node ID">
+                        <input
+                            type="text"
+                            value={selectedNode.id}
+                            disabled
+                            className="flowz-input disabled:opacity-50 text-[0.7rem] font-mono"
+                            style={{ color: 'var(--text-muted)' }}
+                        />
+                    </ConfigField>
                 </div>
 
-                <div className="flex flex-col gap-3">
-                    <label className="text-[0.9rem] text-slate-400 font-medium">Node ID</label>
-                    <input type="text" value={selectedNode.id} disabled className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-slate-500 text-[0.85rem] disabled:cursor-not-allowed outline-none font-mono" />
-                </div>
+                {/* Configuration divider */}
+                <div className="h-px w-full" style={{ background: 'var(--border)' }} />
 
-                <div className="flex flex-col gap-3">
-                    <label className="text-[0.9rem] text-slate-200 font-semibold border-b border-white/5 pb-2">Configuration</label>
+                {/* Dynamic Configuration */}
+                <div className="flex flex-col">
+                    <h4 className="text-sm font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-head)' }}>
+                        Parameters
+                    </h4>
 
                     {selectedNode.data.type === 'http_request' && (
-                        <div className="flex flex-col gap-2">
-                            <label className="text-[0.8rem] text-slate-400 font-medium">Target URL</label>
-                            <input
-                                type="text"
-                                className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                placeholder="https://api.example.com"
-                                value={selectedNode.data.config?.url || ''}
-                                onChange={(e) => updateNodeConfig('url', e.target.value)}
-                            />
-                        </div>
+                        <>
+                            <ConfigField label="Target URL">
+                                <input
+                                    type="text"
+                                    className="flowz-input"
+                                    placeholder="https://api.example.com"
+                                    value={selectedNode.data.config?.url || ''}
+                                    onChange={(e) => updateNodeConfig('url', e.target.value)}
+                                />
+                            </ConfigField>
+                            <ConfigField label="Method">
+                                <select
+                                    className="flowz-input appearance-none"
+                                    value={selectedNode.data.config?.method || 'GET'}
+                                    onChange={(e) => updateNodeConfig('method', e.target.value)}
+                                >
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                    <option value="PUT">PUT</option>
+                                    <option value="DELETE">DELETE</option>
+                                </select>
+                            </ConfigField>
+                        </>
                     )}
 
                     {selectedNode.data.type === 'send_email' && (
                         <>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">SMTP Host</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" placeholder="smtp.gmail.com" value={selectedNode.data.config?.smtp_host || ''} onChange={(e) => updateNodeConfig('smtp_host', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">SMTP Port</label>
-                                <input type="number" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" placeholder="587" value={selectedNode.data.config?.smtp_port || ''} onChange={(e) => updateNodeConfig('smtp_port', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-404 font-medium">SMTP User</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" placeholder="email@example.com" value={selectedNode.data.config?.smtp_user || ''} onChange={(e) => updateNodeConfig('smtp_user', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">SMTP Password</label>
+                            <ConfigField label="SMTP Host">
+                                <input type="text" className="flowz-input" placeholder="smtp.gmail.com" value={selectedNode.data.config?.smtp_host || ''} onChange={(e) => updateNodeConfig('smtp_host', e.target.value)} />
+                            </ConfigField>
+                            <ConfigField label="SMTP Port">
+                                <input type="number" className="flowz-input" placeholder="587" value={selectedNode.data.config?.smtp_port || ''} onChange={(e) => updateNodeConfig('smtp_port', e.target.value)} />
+                            </ConfigField>
+                            <ConfigField label="SMTP User">
+                                <input type="text" className="flowz-input" placeholder="email@example.com" value={selectedNode.data.config?.smtp_user || ''} onChange={(e) => updateNodeConfig('smtp_user', e.target.value)} />
+                            </ConfigField>
+                            <ConfigField label="SMTP Password" description="Use an app-specific password, not your real password.">
                                 <div className="relative">
                                     <input
                                         type={showSmtpPass ? "text" : "password"}
-                                        name="smtp-pass-unique"
-                                        className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 pr-10 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                        className="flowz-input pr-10"
                                         placeholder="App Password"
                                         value={selectedNode.data.config?.smtp_pass || ''}
                                         onChange={(e) => updateNodeConfig('smtp_pass', e.target.value)}
                                     />
                                     <button
                                         type="button"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2"
                                         onClick={() => setShowSmtpPass(!showSmtpPass)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none p-0 text-slate-500 hover:text-white cursor-pointer transition-colors"
+                                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                                     >
-                                        {showSmtpPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        {showSmtpPass ? <EyeOff size={14} /> : <Eye size={14} />}
                                     </button>
                                 </div>
-                            </div>
-                            <div className="h-px bg-white/5 my-2"></div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">To Address</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" placeholder="admin@example.com" value={selectedNode.data.config?.to || ''} onChange={(e) => updateNodeConfig('to', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Subject</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" placeholder="Alert" value={selectedNode.data.config?.subject || ''} onChange={(e) => updateNodeConfig('subject', e.target.value)} />
-                            </div>
+                            </ConfigField>
+                            <ConfigField label="To Email">
+                                <input type="email" className="flowz-input" placeholder="recipient@example.com" value={selectedNode.data.config?.to || ''} onChange={(e) => updateNodeConfig('to', e.target.value)} />
+                            </ConfigField>
+                            <ConfigField label="Subject">
+                                <input type="text" className="flowz-input" placeholder="Hello from Flowz" value={selectedNode.data.config?.subject || ''} onChange={(e) => updateNodeConfig('subject', e.target.value)} />
+                            </ConfigField>
+                            <ConfigField label="Body">
+                                <textarea className="flowz-input" placeholder="Email body..." rows={4} value={selectedNode.data.config?.body || ''} onChange={(e) => updateNodeConfig('body', e.target.value)} />
+                            </ConfigField>
+                        </>
+                    )}
+
+                    {selectedNode.data.type === 'ai_model' && (
+                        <>
+                            <ConfigField label="Provider">
+                                <select
+                                    className="flowz-input appearance-none"
+                                    value={selectedNode.data.config?.provider || 'openai'}
+                                    onChange={(e) => updateNodeConfig('provider', e.target.value)}
+                                >
+                                    <option value="openai">OpenAI</option>
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="gemini">Google Gemini</option>
+                                </select>
+                            </ConfigField>
+                            <ConfigField label="Model">
+                                <input type="text" className="flowz-input" placeholder="gpt-4o" value={selectedNode.data.config?.model || ''} onChange={(e) => updateNodeConfig('model', e.target.value)} />
+                            </ConfigField>
+                            <ConfigField label="API Key">
+                                <div className="relative">
+                                    <input
+                                        type={showAiKey ? "text" : "password"}
+                                        className="flowz-input pr-10"
+                                        placeholder="sk-..."
+                                        value={selectedNode.data.config?.api_key || ''}
+                                        onChange={(e) => updateNodeConfig('api_key', e.target.value)}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2"
+                                        onClick={() => setShowAiKey(!showAiKey)}
+                                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                                    >
+                                        {showAiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </button>
+                                </div>
+                            </ConfigField>
+                            <ConfigField label="System Prompt">
+                                <textarea className="flowz-input" placeholder="You are a helpful assistant..." rows={3} value={selectedNode.data.config?.system_prompt || ''} onChange={(e) => updateNodeConfig('system_prompt', e.target.value)} />
+                            </ConfigField>
+                            <ConfigField label="User Prompt">
+                                <textarea className="flowz-input" placeholder="Analyze the following data: {{trigger.data}}" rows={4} value={selectedNode.data.config?.user_prompt || ''} onChange={(e) => updateNodeConfig('user_prompt', e.target.value)} />
+                            </ConfigField>
+                        </>
+                    )}
+
+                    {selectedNode.data.type === 'save_to_database' && (
+                        <>
+                            <ConfigField label="MongoDB URI">
+                                <input type="text" className="flowz-input" placeholder="mongodb+srv://..." value={selectedNode.data.config?.uri || ''} onChange={(e) => updateNodeConfig('uri', e.target.value)} />
+                            </ConfigField>
+                            <ConfigField label="Collection Name">
+                                <input type="text" className="flowz-input" placeholder="users" value={selectedNode.data.config?.collection || ''} onChange={(e) => updateNodeConfig('collection', e.target.value)} />
+                            </ConfigField>
+                            <ConfigField label="Document Data (JSON)">
+                                <textarea className="flowz-input font-mono text-[0.75rem]" placeholder='{"name": "{{trigger.name}}"}' rows={6} value={selectedNode.data.config?.document || ''} onChange={(e) => updateNodeConfig('document', e.target.value)} />
+                            </ConfigField>
                         </>
                     )}
 
                     {selectedNode.data.type === 'delay' && (
-                        <div className="flex flex-col gap-2">
-                            <label className="text-[0.8rem] text-slate-400 font-medium">Duration (Seconds)</label>
-                            <input type="number" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" placeholder="5" value={selectedNode.data.config?.duration_seconds || ''} onChange={(e) => updateNodeConfig('duration_seconds', e.target.value)} />
-                        </div>
+                        <ConfigField label="Wait Time (ms)">
+                            <input type="number" className="flowz-input" placeholder="5000" value={selectedNode.data.config?.wait_time || ''} onChange={(e) => updateNodeConfig('wait_time', e.target.value)} />
+                        </ConfigField>
                     )}
-
-                    {selectedNode.data.type === 'ai_model' && (
-                        <div className="flex flex-col gap-6">
-                            <div className="flex flex-col gap-3">
-                                <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">AI Setup & Instructions</label>
-                                <div className="p-4 rounded-2xl bg-purple-500/5 border border-purple-500/10 flex flex-col gap-2 mb-2">
-                                    <div className="flex items-center gap-2 text-purple-400 font-bold text-xs uppercase tracking-wider">
-                                        <Sparkles size={14} /> Intelligence Activated
-                                    </div>
-                                    <p className="text-[0.75rem] text-slate-400 m-0 leading-relaxed">
-                                        This node uses a high-performance LLM to process your instructions. Describe the task and persona below.
-                                    </p>
-                                </div>
-                                <div className="flex flex-col gap-3">
-                                    <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">AI Provider</label>
-                                    <select
-                                        className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white text-[0.85rem] outline-none focus:border-purple-500/50 transition-all font-medium"
-                                        value={selectedNode.data.config?.provider || 'google'}
-                                        onChange={(e) => {
-                                            const p = e.target.value;
-                                            updateNodeConfig({
-                                                provider: p,
-                                                model: p === 'openai' ? 'gpt-4o' : 'gemini-2.5-flash'
-                                            });
-                                        }}
-                                    >
-                                        <option value="google">Google Gemini</option>
-                                        <option value="openai">OpenAI</option>
-                                    </select>
-                                </div>
-                                <div className="flex flex-col gap-3">
-                                    <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">Model Name</label>
-                                    <select
-                                        className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-white text-[0.85rem] outline-none focus:border-purple-500/50 transition-all font-medium"
-                                        value={selectedNode.data.config?.model || (selectedNode.data.config?.provider === 'openai' ? 'gpt-4o' : 'gemini-1.5-flash')}
-                                        onChange={(e) => updateNodeConfig('model', e.target.value)}
-                                    >
-                                        {selectedNode.data.config?.provider === 'openai' ? (
-                                            <>
-                                                <option value="gpt-4o">GPT-4o (Fast & Balanced)</option>
-                                                <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
-                                                <option value="gemini-2.5-pro">Gemini 2.5 Pro (Powerful)</option>
-                                                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-                                                <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
-                                                <option value="gemini-2.5-flash-native-audio-preview-12-2025">Gemini 2.5 Flash Native Audio</option>
-                                            </>
-                                        )}
-                                    </select>
-                                </div>
-                                <div className="flex flex-col gap-3">
-                                    <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">API Key</label>
-                                    <div className="relative">
-                                        <input
-                                            type={showAiKey ? "text" : "password"}
-                                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 pr-10 text-white text-[0.85rem] outline-none focus:border-purple-500/50 transition-all font-mono"
-                                            placeholder={selectedNode.data.config?.provider === 'openai' ? "sk-..." : "AIza..."}
-                                            value={selectedNode.data.config?.api_key || ''}
-                                            onChange={(e) => updateNodeConfig('api_key', e.target.value)}
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowAiKey(!showAiKey)}
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none text-slate-500 hover:text-white transition-colors"
-                                        >
-                                            {showAiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                                        </button>
-                                    </div>
-                                    <span className="text-[0.6rem] text-slate-600 flex items-center gap-2"><Info size={10} /> Optional if environment variable is set.</span>
-                                </div>
-                            </div>
-
-                            <div className="flex flex-col gap-3">
-                                <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">System Persona</label>
-                                <div className="relative group">
-                                    <div className="absolute -inset-0.5 bg-purple-500/10 rounded-xl blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
-                                    <textarea
-                                        className="relative w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-[0.85rem] h-[100px] resize-none outline-none focus:border-purple-500/40 transition-all font-medium leading-relaxed custom-scrollbar"
-                                        placeholder="e.g. You are a professional data analyst who provides concise bullet-point summaries..."
-                                        value={selectedNode.data.config?.system_prompt || ''}
-                                        onChange={(e) => updateNodeConfig('system_prompt', e.target.value)}
-                                    />
-                                </div>
-                                <span className="text-[0.65rem] text-slate-600 font-bold uppercase tracking-widest flex items-center gap-2"><Info size={10} /> Define AI's behavior and tone.</span>
-                            </div>
-
-                            <div className="flex flex-col gap-3">
-                                <label className="text-[0.65rem] uppercase tracking-[0.2em] text-slate-500 font-black px-1">Task Instructions</label>
-                                <div className="relative group">
-                                    <div className="absolute -inset-0.5 bg-blue-500/10 rounded-xl blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
-                                    <textarea
-                                        className="relative w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-[0.85rem] h-[140px] resize-none outline-none focus:border-blue-500/40 transition-all font-medium leading-relaxed custom-scrollbar"
-                                        placeholder="e.g. Summarize the following project data: {{text}}"
-                                        value={selectedNode.data.config?.prompt || ''}
-                                        onChange={(e) => updateNodeConfig('prompt', e.target.value)}
-                                    />
-                                </div>
-                                <div className="p-3 bg-slate-950/40 rounded-lg border border-white/5 flex flex-col gap-1.5">
-                                    <span className="text-[0.65rem] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2"><Plus size={10} /> Variable Support</span>
-                                    <p className="text-[0.7rem] text-slate-400 m-0">
-                                        Use <code className="text-blue-400 font-black font-mono">{'{{text}}'}</code>, <code className="text-emerald-400 font-black font-mono">{'{{input}}'}</code>, or <code className="text-purple-400 font-black font-mono">{'{{Manual_Trigger}}'}</code> to inject data.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {selectedNode.data.type === 'save_to_database' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Connection String (MongoDB)</label>
-                                <input
-                                    type="text"
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none font-mono"
-                                    placeholder="mongodb+srv://user:pass@cluster.mongodb.net/dbname"
-                                    value={selectedNode.data.config?.connection_string || ''}
-                                    onChange={(e) => updateNodeConfig('connection_string', e.target.value)}
-                                />
-                                <span className="text-[0.7rem] text-slate-500 italic flex items-center gap-1"><Info size={10} /> Leave empty to use system default database.</span>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Collection Name</label>
-                                <input
-                                    type="text"
-                                    className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                    placeholder="e.g. users_data"
-                                    value={selectedNode.data.config?.collection || ''}
-                                    onChange={(e) => updateNodeConfig('collection', e.target.value)}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {selectedNode.data.type === 'webhook_trigger' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-blue-400 font-bold">Live Webhook URL</label>
-                                <code className="text-[0.78rem] text-blue-200 font-mono break-all bg-black/30 p-3 rounded-lg border border-blue-500/10">
-                                    POST /api/trigger/webhook/[workflow-id]
-                                </code>
-                                <p className="text-[0.75rem] text-slate-500 m-0">Save this workflow first to get a permanent ID, then POST any JSON to this URL to trigger the flow.</p>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-[0.8rem] text-slate-400 font-medium">HTTP Method</label>
-                                    <select className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" value={selectedNode.data.config?.method || 'POST'} onChange={(e) => updateNodeConfig('method', e.target.value)}>
-                                        <option value="POST">POST</option>
-                                        <option value="GET">GET</option>
-                                        <option value="PUT">PUT</option>
-                                        <option value="DELETE">DELETE</option>
-                                    </select>
-                                </div>
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Expected Payload Key (optional)</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="e.g. data" value={selectedNode.data.config?.payload_key || ''} onChange={(e) => updateNodeConfig('payload_key', e.target.value)} />
-                            </div>
-                        </div>
-                    )}
-
-                    {selectedNode.data.type === 'manual_trigger' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-emerald-400 font-bold">How to Use</label>
-                                <p className="text-[0.82rem] text-slate-300 m-0 leading-relaxed">
-                                    Click <b>Test Run</b> in the top bar to execute this workflow manually. Your test payload will be passed to downstream nodes.
-                                </p>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Test Input Payload (JSON)</label>
-                                <textarea className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.85rem] font-mono h-[100px] resize-none outline-none focus:border-blue-500 transition-all" placeholder='{ "key": "value" }' value={selectedNode.data.config?.test_payload || ''} onChange={(e) => updateNodeConfig('test_payload', e.target.value)} />
-                                <span className="text-[0.7rem] text-slate-500 italic">This payload will be available to all connected action nodes.</span>
-                            </div>
-                        </div>
-                    )}
-
-                    {selectedNode.data.type === 'schedule_trigger' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-amber-400 font-bold">Auto-Scheduling</label>
-                                <p className="text-[0.82rem] text-slate-300 m-0 leading-relaxed">Saving the workflow will automatically register this schedule. The workflow will execute at the configured interval until it is deleted.</p>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Interval (seconds)</label>
-                                <input type="number" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="3600" value={selectedNode.data.config?.interval || ''} onChange={(e) => updateNodeConfig('interval', e.target.value)} />
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                {[['60', 'Every min'], ['300', '5 min'], ['3600', 'Hourly'], ['86400', 'Daily']].map(([v, l]) => (
-                                    <button key={v} onClick={() => updateNodeConfig('interval', v)} className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all cursor-pointer ${selectedNode.data.config?.interval == v ? 'bg-amber-500 border-amber-500 text-white' : 'bg-black/20 border-white/10 text-slate-400 hover:border-amber-500/50 hover:text-amber-300'}`}>{l}</button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {selectedNode.data.type === 'app_event' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-purple-400 font-bold">Telegram Bot Setup</label>
-                                <p className="text-[0.78rem] text-slate-400 m-0 leading-relaxed">1. Create a bot via @BotFather on Telegram. 2. Copy the token below. 3. Save the workflow and use "Register Webhook" to connect.</p>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Telegram Bot Token</label>
-                                <input type="password" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="1234567890:AAF..." value={selectedNode.data.config?.telegram_token || ''} onChange={(e) => updateNodeConfig('telegram_token', e.target.value)} />
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Default Chat ID (optional)</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="e.g. -1001234567890" value={selectedNode.data.config?.chat_id || ''} onChange={(e) => updateNodeConfig('chat_id', e.target.value)} />
-                            </div>
-                            <div className="p-3 rounded-lg bg-black/30 border border-white/5">
-                                <code className="text-[0.73rem] text-purple-200 font-mono break-all">POST /api/trigger/app-event/[workflow-id]</code>
-                                <p className="text-[0.7rem] text-slate-500 mt-1 m-0">Telegram will send updates to this URL after webhook registration.</p>
-                            </div>
-                        </div>
-                    )}
-
-                    {selectedNode.data.type === 'form_submission' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-cyan-400 font-bold">Form Endpoint</label>
-                                <code className="text-[0.78rem] text-cyan-200 font-mono break-all bg-black/30 p-3 rounded-lg">
-                                    POST /api/trigger/form/[workflow-id]
-                                </code>
-                                <p className="text-[0.75rem] text-slate-500 m-0">Any form that POSTs to this URL will trigger the workflow with the form data.</p>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Form Fields (JSON array)</label>
-                                <textarea className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.85rem] font-mono h-[100px] resize-none outline-none focus:border-blue-500 transition-all" placeholder='[{"name":"email","type":"email"},{"name":"message","type":"text"}]' value={selectedNode.data.config?.fields || ''} onChange={(e) => updateNodeConfig('fields', e.target.value)} />
-                                <span className="text-[0.7rem] text-slate-500 italic">Define the expected fields for documentation. Actual submission accepts any JSON body.</span>
-                            </div>
-                        </div>
-                    )}
-
-                    {selectedNode.data.type === 'sub_workflow_trigger' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-rose-400 font-bold">Sub-Workflow Endpoint</label>
-                                <code className="text-[0.78rem] text-rose-200 font-mono break-all bg-black/30 p-3 rounded-lg">
-                                    POST /api/trigger/sub-workflow/[workflow-id]
-                                </code>
-                                <p className="text-[0.75rem] text-slate-500 m-0">Call this endpoint from another workflow's HTTP Request node to chain workflows together.</p>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Workflow Description</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all" placeholder="e.g. Sends email notification" value={selectedNode.data.config?.description || ''} onChange={(e) => updateNodeConfig('description', e.target.value)} />
-                            </div>
-                        </div>
-                    )}
-
-                    {selectedNode.data.type === 'chat_message' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-indigo-400 font-bold">Chat API Endpoint</label>
-                                <code className="text-[0.78rem] text-indigo-200 font-mono break-all bg-black/30 p-3 rounded-lg">
-                                    POST /api/trigger/chat/[workflow-id]<br />
-                                    {'{'} "message": "Hello!" {'}'}
-                                </code>
-                                <p className="text-[0.75rem] text-slate-500 m-0">Send a message to this endpoint to trigger the workflow. The response will include the bot's reply.</p>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Bot Persona / System Prompt</label>
-                                <textarea className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.85rem] h-[80px] resize-none outline-none focus:border-blue-500 transition-all" placeholder="You are a helpful assistant..." value={selectedNode.data.config?.system_prompt || ''} onChange={(e) => updateNodeConfig('system_prompt', e.target.value)} />
-                            </div>
-                        </div>
-                    )}
-
-                    {selectedNode.data.type === 'other_ways' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-orange-400 font-bold">Error Trigger Endpoint</label>
-                                <code className="text-[0.78rem] text-orange-200 font-mono break-all bg-black/30 p-3 rounded-lg">
-                                    POST /api/trigger/error/[workflow-id]<br />
-                                    {'{'} "error": "...", "origin_workflow": "id" {'}'}
-                                </code>
-                                <p className="text-[0.75rem] text-slate-500 m-0">Call this from another workflow's error handler to trigger a recovery or notification flow.</p>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Trigger Condition</label>
-                                <select className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none" value={selectedNode.data.config?.condition || 'error'} onChange={(e) => updateNodeConfig('condition', e.target.value)}>
-                                    <option value="error">On Workflow Error</option>
-                                    <option value="file_change">On File Change (coming soon)</option>
-                                    <option value="custom_event">Custom Event (coming soon)</option>
-                                </select>
-                            </div>
-                        </div>
-                    )}
-
-
 
                     {selectedNode.data.type === 'ifElse' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-orange-400 font-bold">Conditional Logic</label>
-                                <p className="text-[0.75rem] text-slate-500 m-0">Evaluates a JavaScript expression and routes to true/false paths.</p>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Condition (JavaScript)</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all font-mono" placeholder="payload.age > 18" value={selectedNode.data.config?.condition || ''} onChange={(e) => updateNodeConfig('condition', e.target.value)} />
-                            </div>
-                        </div>
+                        <ConfigField label="Condition (JavaScript expression)">
+                            <textarea
+                                className="flowz-input font-mono text-[0.75rem]"
+                                placeholder="env.trigger.data.amount > 100"
+                                rows={4}
+                                value={selectedNode.data.config?.condition || ''}
+                                onChange={(e) => updateNodeConfig('condition', e.target.value)}
+                            />
+                        </ConfigField>
                     )}
 
                     {selectedNode.data.type === 'log' && (
-                        <div className="flex flex-col gap-4">
-                            <div className="p-4 rounded-xl bg-slate-500/10 border border-slate-500/20 flex flex-col gap-2">
-                                <label className="text-[0.7rem] uppercase tracking-widest text-slate-400 font-bold">System Log</label>
-                            </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-[0.8rem] text-slate-400 font-medium">Message</label>
-                                <input type="text" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.95rem] outline-none focus:border-blue-500 transition-all font-mono" placeholder="Logged {{variable}}" value={selectedNode.data.config?.message || ''} onChange={(e) => updateNodeConfig('message', e.target.value)} />
-                            </div>
-                        </div>
+                        <ConfigField label="Log Message">
+                            <textarea
+                                className="flowz-input"
+                                placeholder="Processing completed for {{trigger.data.id}}"
+                                rows={3}
+                                value={selectedNode.data.config?.message || ''}
+                                onChange={(e) => updateNodeConfig('message', e.target.value)}
+                            />
+                        </ConfigField>
                     )}
 
-                    {selectedNode.data.config && Object.keys(selectedNode.data.config).length > 0 &&
-                        !['http_request', 'send_email', 'delay', 'ai_model', 'save_to_database', 'webhook_trigger', 'manual_trigger', 'schedule_trigger', 'app_event', 'form_submission', 'sub_workflow_trigger', 'chat_message', 'other_ways', 'ifElse', 'log'].includes(selectedNode.data.type) && (
-                            <div className="flex flex-col gap-2 mt-4 p-4 rounded-lg border border-white/10 bg-black/20">
-                                <label className="text-[0.8rem] text-purple-400 font-bold uppercase tracking-widest">Custom / Missing Configs</label>
-                                {Object.entries(selectedNode.data.config).map(([key, val]) => (
-                                    <div className="flex flex-col gap-1 mt-2" key={key}>
-                                        <label className="text-[0.7rem] text-slate-500 font-medium capitalize">{key.replace(/_/g, ' ')}</label>
-                                        <input type="text" className="bg-black/40 border border-white/10 rounded px-2 py-1.5 text-white text-[0.85rem] outline-none focus:border-blue-500 font-mono" value={typeof val === 'object' ? JSON.stringify(val) : String(val)} onChange={(e) => updateNodeConfig(key, e.target.value)} />
-                                    </div>
-                                ))}
+                    {/* Trigger Webhook Specific Settings */}
+                    {selectedNode.data.type === 'webhook_trigger' && (
+                        <>
+                             <div className="p-3 rounded-xl mb-4" style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.2)' }}>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <Sparkles size={12} style={{ color: '#00d4ff' }} />
+                                    <p className="text-[0.65rem] font-black uppercase m-0" style={{ color: '#00d4ff', fontFamily: 'var(--font-mono)' }}>Webhook Info</p>
+                                </div>
+                                <p className="text-[0.75rem] m-0" style={{ color: 'var(--text-secondary)' }}>
+                                    When this workflow is published, a unique webhook URL will be generated for it. Sending a POST request to that URL will trigger this flow. Let's add authentication.
+                                </p>
                             </div>
-                        )}
+                            <ConfigField label="Webhook Authentication">
+                                 <select
+                                    className="flowz-input appearance-none"
+                                    value={selectedNode.data.config?.auth_type || 'none'}
+                                    onChange={(e) => updateNodeConfig('auth_type', e.target.value)}
+                                >
+                                    <option value="none">None (Public)</option>
+                                    <option value="header">Custom Header</option>
+                                    <option value="bearer">Bearer Token</option>
+                                </select>
+                            </ConfigField>
 
-                    {false && (
-                        <div className="flex flex-col gap-2">
-                            <label className="text-[0.8rem] text-slate-400 font-medium">Raw Config (JSON)</label>
-                            <textarea
-                                className="bg-black/20 border border-white/10 rounded-lg px-3 py-2.5 text-white text-[0.85rem] font-mono transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 h-[100px] resize-none outline-none overflow-y-auto"
-                                value={JSON.stringify(selectedNode.data.config, null, 2)}
-                                onChange={(e) => {
-                                    try {
-                                        const parsed = JSON.parse(e.target.value);
-                                        updateNodeConfig('full_config', parsed);
-                                    } catch (err) { }
-                                }}
-                            />
+                            {selectedNode.data.config?.auth_type === 'header' && (
+                                <>
+                                    <ConfigField label="Expected Header Key">
+                                        <input type="text" className="flowz-input" placeholder="x-api-key" value={selectedNode.data.config?.auth_header_key || ''} onChange={(e) => updateNodeConfig('auth_header_key', e.target.value)} />
+                                    </ConfigField>
+                                    <ConfigField label="Expected Header Value">
+                                        <input type="text" className="flowz-input" placeholder="secret123" value={selectedNode.data.config?.auth_header_value || ''} onChange={(e) => updateNodeConfig('auth_header_value', e.target.value)} />
+                                    </ConfigField>
+                                </>
+                            )}
+                             {selectedNode.data.config?.auth_type === 'bearer' && (
+                                 <ConfigField label="Expected Bearer Token">
+                                    <input type="text" className="flowz-input" placeholder="jwt_or_token..." value={selectedNode.data.config?.auth_token || ''} onChange={(e) => updateNodeConfig('auth_token', e.target.value)} />
+                                </ConfigField>
+                            )}
+                        </>
+                    )}
+
+                    {(!['http_request', 'send_email', 'ai_model', 'save_to_database', 'delay', 'ifElse', 'log', 'webhook_trigger'].includes(selectedNode.data.type)) && (
+                         <div className="flex flex-col gap-3 py-4 text-center">
+                            <Info size={24} style={{ color: 'var(--text-muted)', margin: '0 auto' }} />
+                            <p className="text-[0.8rem] m-0" style={{ color: 'var(--text-secondary)' }}>
+                                No specific configuration needed for <strong>{selectedNode.data.type}</strong>.
+                            </p>
                         </div>
                     )}
                 </div>

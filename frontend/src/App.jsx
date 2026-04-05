@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useWorkflowSocket } from './hooks/useWorkflowSocket';
 import dagre from 'dagre';
 import {
   ReactFlow,
@@ -15,7 +16,9 @@ import axios from 'axios';
 import { Zap, Plus } from 'lucide-react';
 
 import Sidebar from './components/Sidebar';
-import TopBar from './components/TopBar';
+import CommandBar from './components/CommandBar';
+import ActionDock from './components/ActionDock';
+import AiGenerateModal from './components/AiGenerateModal';
 import CustomNode from './components/CustomNode';
 import Modals from './components/Modals';
 import PropertiesSidebar from './components/PropertiesSidebar';
@@ -25,17 +28,22 @@ import ExecutionPanel from './components/ExecutionPanel';
 import TestInputModal from './components/TestInputModal';
 import PublishModal from './components/PublishModal';
 import WorkflowTabs from './components/WorkflowTabs';
+import N8NEdge from './components/N8NEdge';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-let id = 10;
-const getId = () => `dndnode_${id++}`;
+const getId = (prefix = 'node') => `${prefix}_${Math.random().toString(36).substr(2, 9)}`;
 
 const nodeTypes = {
   customTask: CustomNode,
 };
 
+const edgeTypes = {
+  n8n: N8NEdge,
+};
+
 const BuilderCanvas = () => {
+  const { fitView } = useReactFlow();
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -80,7 +88,7 @@ const BuilderCanvas = () => {
 
   const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
   const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
-  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), []);
+  const onConnect = useCallback((params) => setEdges((eds) => addEdge({ ...params, type: 'n8n' }, eds)), []);
 
   const onNodeContextMenu = useCallback(
     (event, node) => {
@@ -206,12 +214,14 @@ const BuilderCanvas = () => {
       return { ...prev, data: { ...prev.data, config: applyUpdate(prev.data.config || {}) } };
     });
   };
-  const generateWorkflow = async () => {
-    if (!aiPrompt) return;
+  const generateWorkflow = async (promptText) => {
+    console.log('[Generate] button clicked');
+    const finalPrompt = typeof promptText === 'string' ? promptText : aiPrompt;
+    if (!finalPrompt) return;
     setIsGenerating(true);
     setGeneratedJsonResult(null);
     try {
-      const { data } = await axios.post(`${API_URL}/ai/generate-workflow`, { prompt: aiPrompt });
+      const { data } = await axios.post(`${API_URL}/ai/generate-workflow`, { prompt: finalPrompt });
       setGeneratedJsonResult(data);
       notify('success', 'Workflow architecture generated successfully.');
     } catch (error) {
@@ -222,14 +232,15 @@ const BuilderCanvas = () => {
     }
   };
 
-  const modifyWorkflow = async () => {
-    if (!aiPrompt) return;
+  const modifyWorkflow = async (promptText) => {
+    const finalPrompt = typeof promptText === 'string' ? promptText : aiPrompt;
+    if (!finalPrompt) return;
     setIsGenerating(true);
     setGeneratedJsonResult(null);
     try {
       const { data } = await axios.post(`${API_URL}/ai/modify-workflow`, {
         currentWorkflow: { nodes, edges },
-        prompt: aiPrompt,
+        prompt: finalPrompt,
         selectedNodeId: selectedNode?.id
       });
       setGeneratedJsonResult(data);
@@ -293,11 +304,23 @@ const BuilderCanvas = () => {
       });
 
       data.edges.forEach((e) => {
+        const sourceNode = generatedNodes.find(n => n.id === e.source);
+        const isIfElse = sourceNode && sourceNode.data && sourceNode.data.type === 'ifElse';
+        let safeSourceHandle = e.sourceHandle;
+        
+        // If the source node is not an ifElse node, it does not have named handles.
+        if (!isIfElse) {
+            safeSourceHandle = undefined;
+        } else if (safeSourceHandle !== 'true' && safeSourceHandle !== 'false') {
+            // For ifElse nodes, ensure valid handles
+            safeSourceHandle = 'true'; // default to true if malformed
+        }
+
         generatedEdges.push({
           id: e.id,
           source: e.source,
           target: e.target,
-          sourceHandle: e.sourceHandle || undefined
+          sourceHandle: safeSourceHandle || undefined
         });
       });
     } else {
@@ -346,7 +369,10 @@ const BuilderCanvas = () => {
     setSelectedNode(null); // Clear selected node to hide property panel
     setAiPrompt('');
     if (!suggestedData) notify('success', 'Workflow applied to canvas.', 'Success');
-    setTimeout(() => setViewport({ x: 0, y: 0, zoom: 0.6 }), 100);
+    setTimeout(() => {
+      onLayout(generatedNodes, generatedEdges);
+      setViewport({ x: 0, y: 0, zoom: 0.6 }, { duration: 800 });
+    }, 200);
   };
 
   const onApplyFix = (suggestedFix) => {
@@ -361,6 +387,28 @@ const BuilderCanvas = () => {
     setShowTestInputModal(true);
   };
 
+  // ── Socket.IO real-time node animation ────────────────────────────────────
+  // We use useMemo so the callbacks object is stable between re-renders
+  const socketCallbacks = useMemo(() => ({
+    onNodeStart: ({ nodeId }) => {
+      setNodes(nds => nds.map(n =>
+        n.id === nodeId ? { ...n, data: { ...n.data, executionStatus: 'loading' } } : n
+      ));
+    },
+    onNodeComplete: ({ nodeId, result }) => {
+      setNodes(nds => nds.map(n =>
+        n.id === nodeId ? { ...n, data: { ...n.data, executionStatus: 'success', executionResult: result } } : n
+      ));
+    },
+    onNodeError: ({ nodeId, error }) => {
+      setNodes(nds => nds.map(n =>
+        n.id === nodeId ? { ...n, data: { ...n.data, executionStatus: 'failure', executionResult: error } } : n
+      ));
+    },
+  }), []);
+
+  useWorkflowSocket(activeWorkflowId, socketCallbacks);
+
   // Called by TestInputModal with the filled payload
   const executeTestRun = async (testPayload) => {
     setIsExecuting(true);
@@ -372,7 +420,12 @@ const BuilderCanvas = () => {
     })));
 
     try {
-      const res = await axios.post(`${API_URL}/workflows/test/execute`, {
+      // If we have a saved workflowId, use the persisted route so socket events fire
+      const endpoint = activeWorkflowId && !activeWorkflowId.startsWith('unsaved_')
+        ? `${API_URL}/workflows/${activeWorkflowId}/execute`
+        : `${API_URL}/workflows/test/execute`;
+
+      const res = await axios.post(endpoint, {
         nodes,
         edges,
         payload: testPayload
@@ -380,20 +433,15 @@ const BuilderCanvas = () => {
 
       const { nodeLogs = [] } = res.data;
 
-      // SEQUENTIAL ANIMATION per node
-      for (const log of nodeLogs) {
-        setNodes(nds => nds.map(node =>
-          node.id === log.nodeId
-            ? { ...node, data: { ...node.data, executionStatus: 'loading' } }
-            : node
-        ));
-        await new Promise(r => setTimeout(r, 200)); // Reduced from 600ms
-        setNodes(nds => nds.map(node =>
-          node.id === log.nodeId
-            ? { ...node, data: { ...node.data, executionStatus: log.status, executionResult: log.result || log.error } }
-            : node
-        ));
-        await new Promise(r => setTimeout(r, 100)); // Reduced from 200ms
+      // If no socket (unsaved workflow fallback) — apply states from response
+      if (!activeWorkflowId || activeWorkflowId.startsWith('unsaved_')) {
+        for (const log of nodeLogs) {
+          setNodes(nds => nds.map(node =>
+            node.id === log.nodeId
+              ? { ...node, data: { ...node.data, executionStatus: log.status, executionResult: log.result || log.error } }
+              : node
+          ));
+        }
       }
 
       if (res.data.status === 'failure') {
@@ -425,8 +473,8 @@ const BuilderCanvas = () => {
             }
           ]);
         } catch (err) {
-          console.error("AI Debugging failed:", err);
-          setDebugMessages(prev => [...prev, { role: 'assistant', text: "Sorry, I encountered an error while trying to analyze the execution failure." }]);
+          console.error('AI Debugging failed:', err);
+          setDebugMessages(prev => [...prev, { role: 'assistant', text: 'Sorry, I encountered an error while trying to analyze the execution failure.' }]);
         } finally {
           setIsExplainingError(false);
         }
@@ -568,7 +616,6 @@ const BuilderCanvas = () => {
       edges: []
     };
 
-    // Save current before switching
     if (activeWorkflowId) {
       setOpenWorkflows(prev => {
         const updated = prev.map(wf => (wf._id || wf.id) === activeWorkflowId ? { ...wf, nodes, edges, name: workflowName } : wf);
@@ -584,27 +631,30 @@ const BuilderCanvas = () => {
     setActiveWorkflowId(newId);
   };
 
-  const onLayout = useCallback(() => {
+  const onLayout = useCallback((customNodes, customEdges) => {
+    const isCustomNodesArray = Array.isArray(customNodes);
+    const targetNodes = isCustomNodesArray ? customNodes : nodes;
+    const targetEdges = isCustomNodesArray ? customEdges : edges;
+
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-    // Setup graph
-    dagreGraph.setGraph({ rankdir: 'LR', nodesep: 70, ranksep: 100 });
+    dagreGraph.setGraph({ rankdir: 'LR', nodesep: 100, ranksep: 200 });
 
-    const nodeWidth = 250;
-    const nodeHeight = 80;
+    const nodeWidth = 320;
+    const nodeHeight = 200;
 
-    nodes.forEach((node) => {
+    targetNodes.forEach((node) => {
       dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
     });
 
-    edges.forEach((edge) => {
+    targetEdges.forEach((edge) => {
       dagreGraph.setEdge(edge.source, edge.target);
     });
 
     dagre.layout(dagreGraph);
 
-    const newNodes = nodes.map((node) => {
+    const newNodes = targetNodes.map((node) => {
       const nodeWithPosition = dagreGraph.node(node.id);
       return {
         ...node,
@@ -646,6 +696,41 @@ const BuilderCanvas = () => {
     }
   };
 
+  const handleSendMessage = async (text) => {
+    if (!text.trim()) return;
+
+    const userMsg = { role: 'user', text };
+    setDebugMessages(prev => [...prev, userMsg]);
+
+    setIsExplainingError(true);
+    try {
+      const lastError = executionResult?.status === 'failure' ? executionResult.error : null;
+      const res = await axios.post(`${API_URL}/ai/chat-debug`, {
+        message: text,
+        history: debugMessages.slice(-5), // Send last 5 messages for context
+        currentWorkflow: { nodes, edges },
+        lastError
+      });
+
+      const { text: aiResponse, suggestedFixWorkflow } = res.data;
+
+      setDebugMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: aiResponse,
+          suggestedFix: suggestedFixWorkflow,
+          isNew: true
+        }
+      ]);
+    } catch (error) {
+      console.error("AI Chat Debug failed:", error);
+      setDebugMessages(prev => [...prev, { role: 'assistant', text: "Sorry, I'm having trouble connecting to the AI brain right now." }]);
+    } finally {
+      setIsExplainingError(false);
+    }
+  };
+
 
   return (
     <div className="flex h-screen w-screen bg-[#020617] text-slate-200 font-['Outfit'] overflow-hidden relative">
@@ -655,11 +740,16 @@ const BuilderCanvas = () => {
         sidebarMode={sidebarMode}
         setSidebarMode={setSidebarMode}
         debugMessages={debugMessages}
+        onSendMessage={handleSendMessage}
         onApplyFix={onApplyFix}
         isExplainingError={isExplainingError}
       />
 
-      <div className="flex-1 relative bg-[radial-gradient(circle_at_50%_50%,rgba(30,41,59,0.5)_1px,transparent_1px)] bg-[size:24px_24px]" ref={reactFlowWrapper}>
+      <div className="flex-1 relative canvas-wrapper" ref={reactFlowWrapper}>
+        {/* Soft vignette overlay overlay */}
+        <div className="absolute inset-0 pointer-events-none z-10" style={{
+          boxShadow: 'inset 0 0 150px rgba(7,9,15, 0.9), inset 0 0 60px rgba(7,9,15, 0.7)'
+        }} />
         {/* Floating Top Header (Tabs) */}
         <div className="z-30">
           <WorkflowTabs
@@ -671,21 +761,25 @@ const BuilderCanvas = () => {
           />
         </div>
 
-        {/* Floating Action Controls (Right Side) */}
-        <div className="z-[45]">
-          <TopBar
-            setShowSaveModal={setShowSaveModal}
-            openHistoryModal={openHistoryModal}
-            setShowAiModal={setShowAiModal}
-            handleTestRun={handleTestRun}
-            isExecuting={isExecuting}
-            onLayout={onLayout}
-            setIsSidebarOpen={setIsSidebarOpen}
-            isSidebarOpen={isSidebarOpen}
-            hasNodes={nodes.length > 0}
-            isPropertiesOpen={!!selectedNode}
-          />
-        </div>
+        <CommandBar
+          workflowName={workflowName}
+          setWorkflowName={setWorkflowName}
+          handleTestRun={handleTestRun}
+          isExecuting={isExecuting}
+          onStop={() => setIsExecuting(false)} // Need full abort implementation for real stop
+          setShowSaveModal={setShowSaveModal}
+          setShowAiModal={setShowAiModal}
+          isSaved={activeWorkflowId && !activeWorkflowId.startsWith('unsaved_')}
+        />
+
+        <ActionDock
+          setIsSidebarOpen={setIsSidebarOpen}
+          isSidebarOpen={isSidebarOpen}
+          onLayout={onLayout}
+          onZoomFit={() => fitView({ duration: 600, padding: 0.2 })}
+          openHistoryModal={openHistoryModal}
+          isPropertiesOpen={!!selectedNode}
+        />
 
         {nodes.length === 0 && !isSidebarOpen && (
           <div className="absolute inset-0 flex items-center justify-center z-10 animate-[fadeIn_0.5s_ease] pointer-events-none">
@@ -719,7 +813,7 @@ const BuilderCanvas = () => {
           fitView
           colorMode="dark"
         >
-          <Background color="#30363d" gap={20} />
+          <Background color="rgba(0, 212, 255, 0.15)" gap={24} size={1.5} />
           <Controls />
         </ReactFlow>
 
@@ -743,8 +837,17 @@ const BuilderCanvas = () => {
         />
       )}
 
+      <AiGenerateModal
+        isOpen={showAiModal}
+        onClose={() => setShowAiModal(false)}
+        onGenerate={generateWorkflow}
+        onApply={applyGeneratedWorkflow}
+        isLoading={isGenerating}
+        aiResponse={generatedJsonResult ? 'Done' : null}
+      />
+
       <Modals
-        showAiModal={showAiModal} setShowAiModal={setShowAiModal} aiPrompt={aiPrompt} setAiPrompt={setAiPrompt}
+        showAiModal={false} setShowAiModal={() => {}} aiPrompt={aiPrompt} setAiPrompt={setAiPrompt}
         isGenerating={isGenerating} generateWorkflow={generateWorkflow} modifyWorkflow={modifyWorkflow}
         generatedJsonResult={generatedJsonResult} applyGeneratedWorkflow={applyGeneratedWorkflow} setGeneratedJsonResult={setGeneratedJsonResult}
         showSaveModal={showSaveModal} setShowSaveModal={setShowSaveModal} workflowName={workflowName} setWorkflowName={setWorkflowName} isSaving={isSaving} saveWorkflow={saveWorkflow}

@@ -1,11 +1,14 @@
 import express from 'express';
 import fs from 'fs';
 import axios from 'axios';
-import { generateWorkflowConfig, explainErrorLog, modifyWorkflowConfig } from '../controllers/aiController.js';
+import { generateWorkflowConfig, explainErrorLog, modifyWorkflowConfig, chatDebug } from '../controllers/aiController.js';
 import { runWorkflow } from '../engine/index.js';
 import Workflow from '../models/Workflow.js';
+import ExecutionLog from '../models/ExecutionLog.js';
 import { registerSchedule, stopSchedule, intervalToCron } from '../triggers/scheduler.js';
 import { registerChatTrigger, sendChatMessage, getChatHistory, addBotMessage } from '../triggers/chatStore.js';
+import { requireAuth } from '../middleware/auth.js';
+import secretRoutes from './secretRoutes.js';
 
 const router = express.Router();
 
@@ -14,17 +17,54 @@ router.use((req, res, next) => {
     next();
 });
 
+router.use(requireAuth);
+router.use('/secrets', secretRoutes);
+
 router.get('/trigger/test', (req, res) => res.json({ message: 'Trigger routes are active' }));
 
 router.post('/ai/generate-workflow', generateWorkflowConfig);
 router.post('/ai/modify-workflow', modifyWorkflowConfig);
 router.post('/ai/explain-error', explainErrorLog);
+router.post('/ai/chat-debug', chatDebug);
 
+// ── Execution History Routes ──────────────────────────────────────────────────
+router.get('/workflows/:id/runs', async (req, res) => {
+    try {
+        const wf = await Workflow.findById(req.params.id);
+        if (!wf || wf.userId.toString() !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+
+        const runs = await ExecutionLog.find({ workflowId: req.params.id })
+            .sort({ createdAt: -1 })
+            .select('-nodeLogs.input -nodeLogs.result') // Omit heavy payload unless requested
+            .limit(50);
+            
+        res.json(runs);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.get('/workflows/:id/runs/:runId', async (req, res) => {
+    try {
+        const wf = await Workflow.findById(req.params.id);
+        if (!wf || wf.userId.toString() !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+
+        const run = await ExecutionLog.findOne({ _id: req.params.runId, workflowId: req.params.id });
+        if (!run) return res.status(404).json({ error: 'Run not found' });
+        
+        res.json(run);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ── Trigger API & Workflow Management ─────────────────────────────────────────
 router.post('/workflows/:id/execute', async (req, res) => {
     try {
         const { nodes, edges, payload } = req.body;
         if (!nodes || !edges) return res.status(400).json({ error: 'Nodes and edges are required' });
-        const result = await runWorkflow(nodes, edges, payload || {});
+        // Passing request ID so logs get persisted for tests from UI
+        const result = await runWorkflow(nodes, edges, payload || {}, req.user.id, req.params.id, 'api');
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -33,7 +73,7 @@ router.post('/workflows/:id/execute', async (req, res) => {
 
 router.get('/workflows', async (req, res) => {
     try {
-        const workflows = await Workflow.find().sort({ createdAt: -1 });
+        const workflows = await Workflow.find({ userId: req.user.id }).sort({ createdAt: -1 });
         res.json(workflows);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -43,15 +83,14 @@ router.get('/workflows', async (req, res) => {
 router.post('/workflows', async (req, res) => {
     try {
         const { name, nodes, edges } = req.body;
-        const saved = await new Workflow({ name, nodes, edges }).save();
+        const saved = await new Workflow({ name, nodes, edges, userId: req.user.id }).save();
 
         const scheduleTrigger = nodes?.find(n => n.data?.type === 'schedule_trigger');
         if (scheduleTrigger && scheduleTrigger.data?.config?.interval) {
             const cronExpr = intervalToCron(scheduleTrigger.data.config.interval);
             registerSchedule(saved._id.toString(), cronExpr, async (ctx) => {
                 try {
-                    await runWorkflow(nodes, edges, ctx.trigger.payload);
-                    console.log(`[SCHEDULER] Workflow ${saved._id} executed successfully.`);
+                    await runWorkflow(nodes, edges, ctx.trigger.payload, req.user.id, saved._id.toString(), 'schedule');
                 } catch (e) {
                     console.error(`[SCHEDULER] Workflow ${saved._id} failed:`, e.message);
                 }
@@ -62,7 +101,7 @@ router.post('/workflows', async (req, res) => {
         if (chatTrigger) {
             registerChatTrigger(saved._id.toString(), async (ctx) => {
                 try {
-                    const result = await runWorkflow(nodes, edges, ctx.trigger.payload);
+                    const result = await runWorkflow(nodes, edges, ctx.trigger.payload, req.user.id, saved._id.toString(), 'chat');
                     const lastOutput = Object.values(result.nodeResults || {}).pop();
                     const botReply = lastOutput?.response || lastOutput?.output || lastOutput?.result || JSON.stringify(lastOutput);
                     addBotMessage(saved._id.toString(), botReply || 'Workflow completed.');
@@ -89,33 +128,28 @@ router.delete('/workflows/:id', async (req, res) => {
     }
 });
 
+// ── Ad-hoc Triggers ───────────────────────────────────────────────────────────
 router.post('/trigger/webhook/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-
-        const result = await runWorkflow(wf.nodes, wf.edges, req.body || {});
+        const result = await runWorkflow(wf.nodes, wf.edges, req.body || {}, wf.userId, wf._id.toString(), 'webhook');
         res.json({ success: true, workflowId: req.params.workflowId, result });
     } catch (error) {
-        console.error(`[WEBHOOK TRIGGER] Error:`, error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
 router.get('/trigger/webhook/:workflowId/info', async (req, res) => {
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-    res.json({
-        url: `${baseUrl}/api/trigger/webhook/${req.params.workflowId}`,
-        method: 'POST',
-        note: 'Send any JSON payload to this URL to trigger the workflow.'
-    });
+    res.json({ url: `${baseUrl}/api/trigger/webhook/${req.params.workflowId}`, method: 'POST' });
 });
 
 router.post('/trigger/manual/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-        const result = await runWorkflow(wf.nodes, wf.edges, { source: 'manual', ...req.body });
+        const result = await runWorkflow(wf.nodes, wf.edges, { source: 'manual', ...req.body }, wf.userId, wf._id.toString(), 'manual');
         res.json({ success: true, result });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -130,10 +164,10 @@ router.post('/trigger/schedule/:workflowId', async (req, res) => {
 
         const cronExpr = intervalToCron(interval || 3600);
         registerSchedule(req.params.workflowId, cronExpr, async (ctx) => {
-            await runWorkflow(wf.nodes, wf.edges, ctx.trigger.payload);
+            await runWorkflow(wf.nodes, wf.edges, ctx.trigger.payload, wf.userId, wf._id.toString(), 'schedule');
         });
 
-        res.json({ success: true, cronExpression: cronExpr, message: `Schedule registered: ${cronExpr}` });
+        res.json({ success: true, cronExpression: cronExpr });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -141,18 +175,15 @@ router.post('/trigger/schedule/:workflowId', async (req, res) => {
 
 router.delete('/trigger/schedule/:workflowId', (req, res) => {
     stopSchedule(req.params.workflowId);
-    res.json({ success: true, message: 'Schedule stopped.' });
+    res.json({ success: true });
 });
 
 router.post('/trigger/form/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-
-        const formData = req.body;
-        console.log(`[FORM TRIGGER] Workflow ${req.params.workflowId} - Form data received:`, formData);
-        const result = await runWorkflow(wf.nodes, wf.edges, { source: 'form', form_data: formData });
-        res.json({ success: true, message: 'Form submitted successfully', result });
+        const result = await runWorkflow(wf.nodes, wf.edges, { source: 'form', form_data: req.body }, wf.userId, wf._id.toString(), 'form');
+        res.json({ success: true, result });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -161,26 +192,15 @@ router.post('/trigger/form/:workflowId', async (req, res) => {
 router.get('/trigger/form/:workflowId/info', async (req, res) => {
     const wf = await Workflow.findById(req.params.workflowId);
     if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-
-    const formTrigger = wf.nodes?.find(n => n.data?.type === 'form_submission');
-    const fields = formTrigger?.data?.config?.fields
-        ? JSON.parse(formTrigger.data.config.fields)
-        : [{ name: 'name', type: 'text' }, { name: 'email', type: 'email' }];
-
     const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-    res.json({
-        submission_url: `${baseUrl}/api/trigger/form/${req.params.workflowId}`,
-        method: 'POST',
-        fields
-    });
+    res.json({ submission_url: `${baseUrl}/api/trigger/form/${req.params.workflowId}`, method: 'POST' });
 });
 
 router.post('/trigger/sub-workflow/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Sub-workflow not found' });
-
-        const result = await runWorkflow(wf.nodes, wf.edges, { source: 'sub_workflow', caller_payload: req.body });
+        const result = await runWorkflow(wf.nodes, wf.edges, { source: 'sub_workflow', caller_payload: req.body }, wf.userId, wf._id.toString(), 'sub_workflow');
         res.json({ success: true, result });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -190,158 +210,96 @@ router.post('/trigger/sub-workflow/:workflowId', async (req, res) => {
 router.post('/trigger/chat/:workflowId', async (req, res) => {
     try {
         const { message } = req.body;
-        if (!message) return res.status(400).json({ error: 'Message is required' });
-
+        if (!message) return res.status(400).json({ error: 'Message required' });
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
 
-        if (!getChatHistory(req.params.workflowId).length) {
-            registerChatTrigger(req.params.workflowId, async (ctx) => {
+        const workflowId = req.params.workflowId;
+
+        // Register trigger if this is the first message
+        if (!getChatHistory(workflowId).length) {
+            registerChatTrigger(workflowId, async (ctx) => {
                 try {
-                    const result = await runWorkflow(wf.nodes, wf.edges, ctx.trigger.payload);
+                    const result = await runWorkflow(wf.nodes, wf.edges, ctx.trigger.payload, wf.userId, wf._id.toString(), 'chat');
                     const lastOutput = Object.values(result.nodeResults || {}).pop();
                     const botReply = lastOutput?.response || lastOutput?.output || lastOutput?.result || JSON.stringify(lastOutput);
-                    addBotMessage(req.params.workflowId, botReply || 'Workflow completed.');
+                    const reply = botReply || 'Workflow completed.';
+                    addBotMessage(workflowId, reply);
+
+                    // Push the bot reply to the client via Socket.IO (no polling needed)
+                    const { getIO } = await import('../config/socket.js');
+                    const io = getIO();
+                    if (io) io.to(`workflow_${workflowId}`).emit('chat:reply', { role: 'bot', content: reply, timestamp: new Date().toISOString() });
                 } catch (e) {
-                    addBotMessage(req.params.workflowId, `Error: ${e.message}`);
+                    const errMsg = `Error: ${e.message}`;
+                    addBotMessage(workflowId, errMsg);
+                    const { getIO } = await import('../config/socket.js');
+                    const io = getIO();
+                    if (io) io.to(`workflow_${workflowId}`).emit('chat:reply', { role: 'bot', content: errMsg, timestamp: new Date().toISOString() });
                 }
             });
         }
 
-        sendChatMessage(req.params.workflowId, message, 'user');
-
-        await new Promise(r => setTimeout(r, 1500));
-        const history = getChatHistory(req.params.workflowId);
-        const lastEntry = history[history.length - 1];
-
-        res.json({ success: true, reply: lastEntry?.role === 'bot' ? lastEntry.content : null, history });
+        // Send user message and immediately return 202 — reply comes via socket
+        sendChatMessage(workflowId, message, 'user');
+        const history = getChatHistory(workflowId);
+        res.status(202).json({ success: true, status: 'processing', history });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-router.get('/trigger/chat/:workflowId/history', (req, res) => {
-    res.json({ history: getChatHistory(req.params.workflowId) });
-});
+router.get('/trigger/chat/:workflowId/history', (req, res) => res.json({ history: getChatHistory(req.params.workflowId) }));
 
 router.post('/trigger/app-event/:workflowId', async (req, res) => {
     try {
-        // fs.appendFileSync('requests.log', `[${new Date().toISOString()}] Received request for ${req.params.workflowId}\n`);
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
 
         const telegramMsg = req.body?.message;
-        const payload = {
-            source: 'app_event',
-            raw: req.body,
-            text: telegramMsg?.text || null,
-            from: telegramMsg?.from || null,
-            chat_id: telegramMsg?.chat?.id || null,
-        };
-
+        const payload = { source: 'app_event', raw: req.body, text: telegramMsg?.text, from: telegramMsg?.from, chat_id: telegramMsg?.chat?.id };
         res.json({ ok: true });
 
         (async () => {
             try {
-                console.log(`[TELEGRAM] Running workflow for ${req.params.workflowId}...`);
-                const result = await runWorkflow(wf.nodes, wf.edges, payload);
-                console.log(`[TELEGRAM] Workflow status: ${result.status}`);
-
+                const result = await runWorkflow(wf.nodes, wf.edges, payload, wf.userId, wf._id.toString(), 'app_event');
                 const appTrigger = wf.nodes?.find(n => n.data?.type === 'app_event');
                 const botToken = appTrigger?.data?.config?.telegram_token;
                 const chatId = payload.chat_id || appTrigger?.data?.config?.chat_id;
 
                 let reply;
-                // Try specific extraction from AI node results first
                 const aiNode = wf.nodes.find(n => n.data?.type === 'ai_model');
-                if (aiNode && result.nodeResults[aiNode.id]) {
-                    const aiRes = result.nodeResults[aiNode.id];
-                    reply = aiRes.output || aiRes.result || aiRes.text || aiRes;
-                }
-
-                // Fallback to last successful node result if no AI output or no AI node
-                if (!reply && result.nodeLogs && result.nodeLogs.length > 0) {
-                    const successLogs = result.nodeLogs.filter(l => l.status === 'success' && !['app_event', 'manual_trigger', 'webhook_trigger'].includes(l.nodeType));
-                    if (successLogs.length > 0) {
-                        const lastLog = successLogs[successLogs.length - 1];
-                        const lastRes = lastLog.result;
-                        // Extract output from common node result patterns
-                        reply = lastRes?.output || lastRes?.response || lastRes?.result || lastRes?.data || lastRes?.text || lastRes;
-                    }
-                }
-
-                // Error fallback
-                if (!reply && result.status === 'failure') {
-                    reply = `Execution failed: ${result.error}`;
-                }
-
-                // Default fallback if absolutely nothing found
-                if (!reply) {
-                    reply = result.status === 'success' ? 'Workflow finished, but no output was generated.' : 'Workflow failed unexpectedly.';
-                }
+                if (aiNode && result.nodeResults[aiNode.id]) reply = result.nodeResults[aiNode.id].output;
+                if (!reply && result.nodeLogs?.length) reply = result.nodeLogs[result.nodeLogs.length - 1].result?.output;
+                if (!reply) reply = result.status === 'success' ? 'Workflow finished.' : `Error: ${result.error}`;
 
                 if (botToken && chatId) {
-                    console.log(`[TELEGRAM] Sending reply to chat ${chatId}...`);
-                    await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-                        chat_id: chatId,
-                        text: typeof reply === 'string' ? reply : (typeof reply === 'object' ? JSON.stringify(reply, null, 2) : String(reply))
-                    }).catch(err => {
-                        console.error('[TELEGRAM] API Error:', err.response?.data || err.message);
-                    });
-                } else {
-                    console.warn(`[TELEGRAM] Missing info: token=${!!botToken}, chat=${chatId}`);
+                    await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, { chat_id: chatId, text: String(reply) }).catch(err => console.error('[TELEGRAM] Error:', err.message));
                 }
-            } catch (err) {
-                console.error('[TELEGRAM] Process Error:', err.message);
-            }
+            } catch (e) { console.error('[APP EVENT ERROR]', e.message); }
         })();
-
-    } catch (error) {
-        console.error('[APP EVENT ERROR]', error.message);
-        res.status(500).json({ error: error.message });
-    }
+    } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Register Telegram webhook for a workflow
 router.post('/trigger/app-event/:workflowId/register-telegram', async (req, res) => {
     try {
         const { telegram_token } = req.body;
-        if (!telegram_token) return res.status(400).json({ error: 'telegram_token required' });
-        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-        const webhookUrl = `${baseUrl}/api/trigger/app-event/${req.params.workflowId}`;
+        const webhookUrl = `${process.env.BASE_URL || `${req.protocol}://${req.get('host')}`}/api/trigger/app-event/${req.params.workflowId}`;
         const tgRes = await axios.post(`https://api.telegram.org/bot${telegram_token}/setWebhook`, { url: webhookUrl });
         res.json({ success: true, webhookUrl, telegram: tgRes.data });
-    } catch (error) {
-        console.error('[TELEGRAM REGISTRATION]', error.response?.data || error.message);
-        let errorMsg = error.response?.data?.description || error.message;
-
-        // Add a helpful hint for localhost users
-        if (errorMsg.includes('HTTPS url must be provided')) {
-            errorMsg += '. TIP: Telegram requires an HTTPS URL. Since you are on localhost, you need to use a tool like ngrok to create a secure tunnel (e.g. "ngrok http 5000") and use that URL.';
-        }
-
-        res.status(500).json({ error: errorMsg });
-    }
+    } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// ─── TRIGGER 8: Other Ways (error, file-change) ───────────────────────────────
-// Error event trigger — call this when another workflow errors
 router.post('/trigger/error/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-        const result = await runWorkflow(wf.nodes, wf.edges, {
-            source: 'error_trigger',
-            error: req.body?.error || 'Unknown error',
-            origin_workflow: req.body?.origin_workflow || null
-        });
+        const result = await runWorkflow(wf.nodes, wf.edges, { source: 'error_trigger', error: req.body?.error }, wf.userId, wf._id.toString(), 'api');
         res.json({ success: true, result });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+    } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-
 export default router;
+
 
 

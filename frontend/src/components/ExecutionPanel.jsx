@@ -1,94 +1,100 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
     CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp,
-    X, AlertTriangle, Copy, Check, Timer, GripHorizontal,
-    Maximize2, Minimize2, Rocket
+    X, Copy, Check, Timer, GripHorizontal, Maximize2, Minimize2,
+    Rocket, Activity, AlertCircle
 } from 'lucide-react';
 
-const MIN_HEIGHT = 120;
-const MAX_HEIGHT_RATIO = 0.88;
-const DEFAULT_HEIGHT = 320;
-const SNAP_CLOSE_THRESHOLD = 80;
+const MIN_H = 100;
+const MAX_H_RATIO = 0.85;
+const DEFAULT_H = 300;
+const SNAP_CLOSE = 70;
 
-const StatusBadge = ({ status }) => {
-    const map = {
-        success: { icon: CheckCircle2, label: 'Success', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' },
-        failure: { icon: XCircle, label: 'Failed', cls: 'bg-red-500/15 text-red-400 border-red-500/20' },
-        loading: { icon: Clock, label: 'Running...', cls: 'bg-blue-500/15 text-blue-400 border-blue-500/20' },
-    };
-    const { icon: Icon, label, cls } = map[status] || { icon: AlertTriangle, label: 'Unknown', cls: 'bg-slate-500/15 text-slate-400 border-slate-500/20' };
-    return (
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[0.7rem] font-bold uppercase tracking-wider border ${cls}`}>
-            <Icon size={12} /> {label}
-        </span>
-    );
-};
+/* ── Node timeline row ──────────────────────────────────────────────────── */
+const TimelineRow = ({ log, index, label, delay }) => {
+    const [expanded, setExpanded] = useState(false);
+    const [visible, setVisible] = useState(false);
 
-const CopyButton = ({ text }) => {
-    const [copied, setCopied] = useState(false);
+    useEffect(() => {
+        const t = setTimeout(() => setVisible(true), delay);
+        return () => clearTimeout(t);
+    }, [delay]);
+
+    const isSuccess = log.status === 'success';
+    const isFailure = log.status === 'failure';
+    const isRunning = log.status === 'loading';
+
+    const accentColor = isSuccess ? '#10b981' : isFailure ? '#ef4444' : '#00d4ff';
+    const bgColor     = isSuccess ? 'rgba(16,185,129,0.05)' : isFailure ? 'rgba(239,68,68,0.05)' : 'rgba(0,212,255,0.05)';
+    const borderColor = isSuccess ? 'rgba(16,185,129,0.2)' : isFailure ? 'rgba(239,68,68,0.2)' : 'rgba(0,212,255,0.2)';
+
+    const resultStr = log.result != null
+        ? (typeof log.result === 'object' ? JSON.stringify(log.result, null, 2) : String(log.result))
+        : '';
+
     return (
-        <button
-            onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-            style={{ border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', cursor: 'pointer', padding: '5px', borderRadius: '8px', color: copied ? '#34d399' : '#94a3b8', display: 'flex', alignItems: 'center' }}
+        <div
+            className="timeline-node-enter flex flex-col rounded-xl overflow-hidden transition-all"
+            style={{
+                opacity: visible ? 1 : 0,
+                transform: visible ? 'translateX(0)' : 'translateX(-12px)',
+                transition: `opacity 0.25s ease ${delay}ms, transform 0.25s ease ${delay}ms`,
+                background: bgColor,
+                border: `1px solid ${borderColor}`,
+            }}
         >
-            {copied ? <Check size={13} /> : <Copy size={13} />}
-        </button>
-    );
-};
-
-const NodeResultCard = ({ log, index, nodeLabel }) => {
-    const [expanded, setExpanded] = useState(index === 0);
-    const resultStr = typeof log.result === 'object' ? JSON.stringify(log.result, null, 2) : String(log.result || '');
-    const inputStr = typeof log.input === 'object' ? JSON.stringify(log.input, null, 2) : String(log.input || '');
-    const borderCls = log.status === 'success' ? 'border-emerald-500/20 bg-emerald-500/[0.03]' : log.status === 'failure' ? 'border-red-500/20 bg-red-500/[0.03]' : 'border-white/8 bg-white/[0.02]';
-
-    return (
-        <div className={`rounded-2xl border transition-all ${borderCls}`}>
-            <button className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-white/[0.02] transition-colors rounded-t-2xl"
+            {/* Row header */}
+            <button
+                onClick={() => setExpanded(e => !e)}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left"
                 style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
-                onClick={() => setExpanded(!expanded)}>
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[0.7rem] font-black flex-shrink-0 ${log.status === 'success' ? 'bg-emerald-500/20 text-emerald-400' : log.status === 'failure' ? 'bg-red-500/20 text-red-400' : 'bg-slate-700 text-slate-400'}`}>
+            >
+                {/* Step number */}
+                <span
+                    className="w-6 h-6 rounded-lg flex items-center justify-center text-[0.65rem] font-black flex-shrink-0"
+                    style={{ background: `${accentColor}22`, color: accentColor, fontFamily: 'var(--font-mono)' }}
+                >
                     {index + 1}
-                </div>
-                <div className="flex-1 min-w-0">
-                    <p className="text-[0.9rem] font-bold text-white m-0 truncate">{nodeLabel || log.nodeId}</p>
-                    <p className="text-[0.72rem] text-slate-500 m-0 font-mono truncate">{log.nodeId}</p>
-                </div>
-                <div className="flex items-center gap-3">
+                </span>
+
+                {/* Node label */}
+                <span className="flex-1 text-sm font-semibold truncate text-left"
+                      style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-head)' }}>
+                    {label || log.nodeId}
+                </span>
+
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    {/* Duration */}
                     {log.duration != null && (
-                        <span className="flex items-center gap-1 text-[0.7rem] text-slate-500 font-mono">
-                            <Timer size={11} />{log.duration}ms
+                        <span className="flex items-center gap-1 text-[0.65rem]"
+                              style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                            <Timer size={10} />{log.duration}ms
                         </span>
                     )}
-                    <StatusBadge status={log.status} />
-                    {expanded ? <ChevronUp size={16} className="text-slate-500" /> : <ChevronDown size={16} className="text-slate-500" />}
+
+                    {/* Status icon */}
+                    {isSuccess && <CheckCircle2 size={15} style={{ color: '#10b981' }} />}
+                    {isFailure && <XCircle      size={15} style={{ color: '#ef4444' }} />}
+                    {isRunning && <Activity     size={15} style={{ color: '#00d4ff' }} className="animate-pulse" />}
+
+                    {expanded ? <ChevronUp size={13} style={{ color: 'var(--text-muted)' }} />
+                              : <ChevronDown size={13} style={{ color: 'var(--text-muted)' }} />}
                 </div>
             </button>
 
+            {/* Expanded detail */}
             {expanded && (
-                <div className="px-5 pb-5 flex flex-col gap-4 border-t border-white/5 pt-4">
-                    {log.status === 'failure' && log.error && (
-                        <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20">
-                            <p className="text-[0.75rem] font-bold text-red-400 uppercase tracking-widest mb-1">Error</p>
-                            <pre className="text-[0.8rem] text-red-300 m-0 font-mono whitespace-pre-wrap break-all">{String(log.error)}</pre>
+                <div className="px-4 pb-3 flex flex-col gap-2 border-t" style={{ borderColor: `${borderColor}` }}>
+                    {log.error && (
+                        <div className="mt-2 p-3 rounded-lg" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                            <p className="text-[0.65rem] font-black uppercase tracking-widest mb-1" style={{ color: '#ef4444', fontFamily: 'var(--font-mono)' }}>Error</p>
+                            <pre className="text-[0.75rem] m-0 whitespace-pre-wrap break-all" style={{ color: '#fca5a5', fontFamily: 'var(--font-mono)' }}>{String(log.error)}</pre>
                         </div>
                     )}
-                    {log.input != null && (
-                        <div className="flex flex-col gap-2">
-                            <div className="flex items-center justify-between">
-                                <p className="text-[0.7rem] uppercase tracking-widest text-slate-500 font-bold m-0">Input</p>
-                                <CopyButton text={inputStr} />
-                            </div>
-                            <pre className="bg-black/40 border border-white/5 rounded-xl p-3 text-[0.78rem] text-slate-300 m-0 font-mono whitespace-pre-wrap break-all max-h-[180px] overflow-auto">{inputStr}</pre>
-                        </div>
-                    )}
-                    {log.result != null && (
-                        <div className="flex flex-col gap-2">
-                            <div className="flex items-center justify-between">
-                                <p className="text-[0.7rem] uppercase tracking-widest text-emerald-500/70 font-bold m-0">Output</p>
-                                <CopyButton text={resultStr} />
-                            </div>
-                            <pre className="bg-black/40 border border-emerald-500/10 rounded-xl p-3 text-[0.78rem] text-emerald-200 m-0 font-mono whitespace-pre-wrap break-all max-h-[240px] overflow-auto">{resultStr}</pre>
+                    {resultStr && (
+                        <div className="mt-2">
+                            <p className="text-[0.65rem] font-black uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Output</p>
+                            <pre className="text-[0.75rem] m-0 whitespace-pre-wrap break-all max-h-40 overflow-auto p-3 rounded-lg" style={{ color: '#6ee7b7', fontFamily: 'var(--font-mono)', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(16,185,129,0.1)' }}>{resultStr}</pre>
                         </div>
                     )}
                 </div>
@@ -97,239 +103,268 @@ const NodeResultCard = ({ log, index, nodeLabel }) => {
     );
 };
 
+/* ── Main panel ─────────────────────────────────────────────────────────── */
 export default function ExecutionPanel({ isOpen, onClose, executionResult, nodes, onPublish }) {
-    const [activeTab, setActiveTab] = useState('nodes');
-    const [panelHeight, setPanelHeight] = useState(DEFAULT_HEIGHT);
-    const [isMaximized, setIsMaximized] = useState(false);
-    const isDragging = useRef(false);
+    const [tab, setTab] = useState('nodes');
+    const [panelH, setPanelH] = useState(DEFAULT_H);
+    const [isMax, setIsMax] = useState(false);
+    const dragging = useRef(false);
     const startY = useRef(0);
-    const startHeight = useRef(DEFAULT_HEIGHT);
+    const startH = useRef(DEFAULT_H);
 
     useEffect(() => {
-        if (isOpen) { setPanelHeight(DEFAULT_HEIGHT); setIsMaximized(false); }
+        if (isOpen) { setPanelH(DEFAULT_H); setIsMax(false); setTab('nodes'); }
     }, [isOpen]);
 
     const onMouseDown = useCallback((e) => {
-        isDragging.current = true;
+        dragging.current = true;
         startY.current = e.clientY;
-        startHeight.current = panelHeight;
+        startH.current = panelH;
         document.body.style.cursor = 'ns-resize';
         document.body.style.userSelect = 'none';
-    }, [panelHeight]);
-
-    const onTouchStart = useCallback((e) => {
-        isDragging.current = true;
-        startY.current = e.touches[0].clientY;
-        startHeight.current = panelHeight;
-    }, [panelHeight]);
+    }, [panelH]);
 
     useEffect(() => {
-        const maxH = window.innerHeight * MAX_HEIGHT_RATIO;
-
-        const onMouseMove = (e) => {
-            if (!isDragging.current) return;
-            const delta = startY.current - e.clientY;
-            setPanelHeight(Math.min(maxH, Math.max(MIN_HEIGHT, startHeight.current + delta)));
-            setIsMaximized(false);
+        const maxH = window.innerHeight * MAX_H_RATIO;
+        const onMove = (e) => {
+            if (!dragging.current) return;
+            const next = Math.min(maxH, Math.max(MIN_H, startH.current + startY.current - e.clientY));
+            setPanelH(next);
+            setIsMax(false);
         };
-
-        const onTouchMove = (e) => {
-            if (!isDragging.current) return;
-            const delta = startY.current - e.touches[0].clientY;
-            setPanelHeight(Math.min(maxH, Math.max(MIN_HEIGHT, startHeight.current + delta)));
-            setIsMaximized(false);
-        };
-
-        const onEnd = (clientY) => {
-            if (!isDragging.current) return;
-            isDragging.current = false;
+        const onUp = (e) => {
+            if (!dragging.current) return;
+            dragging.current = false;
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
-            const delta = startY.current - clientY;
-            if (startHeight.current + delta < SNAP_CLOSE_THRESHOLD) onClose();
+            if (startH.current + startY.current - e.clientY < SNAP_CLOSE) onClose();
         };
-
-        const onMouseUp = (e) => onEnd(e.clientY);
-        const onTouchEnd = (e) => {
-            isDragging.current = false;
-            const delta = startY.current - (e.changedTouches[0]?.clientY ?? startY.current);
-            if (startHeight.current + delta < SNAP_CLOSE_THRESHOLD) onClose();
-        };
-
-        window.addEventListener('mousemove', onMouseMove);
-        window.addEventListener('mouseup', onMouseUp);
-        window.addEventListener('touchmove', onTouchMove);
-        window.addEventListener('touchend', onTouchEnd);
-        return () => {
-            window.removeEventListener('mousemove', onMouseMove);
-            window.removeEventListener('mouseup', onMouseUp);
-            window.removeEventListener('touchmove', onTouchMove);
-            window.removeEventListener('touchend', onTouchEnd);
-        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
     }, [onClose]);
-
-    const toggleMaximize = () => {
-        if (isMaximized) {
-            setPanelHeight(DEFAULT_HEIGHT);
-            setIsMaximized(false);
-        } else {
-            setPanelHeight(Math.floor(window.innerHeight * MAX_HEIGHT_RATIO));
-            setIsMaximized(true);
-        }
-    };
 
     if (!isOpen || !executionResult) return null;
 
     const { nodeLogs = [], status, error, duration } = executionResult;
     const successCount = nodeLogs.filter(l => l.status === 'success').length;
-    const failCount = nodeLogs.filter(l => l.status === 'failure').length;
-    const totalOutput = nodeLogs.at(-1)?.result;
-    const getNodeLabel = (nodeId) => nodes?.find(n => n.id === nodeId)?.data?.label || nodeId;
+    const failCount    = nodeLogs.filter(l => l.status === 'failure').length;
+    const totalOutput  = nodeLogs.at(-1)?.result;
+    const getLabel     = (id) => nodes?.find(n => n.id === id)?.data?.label || id;
 
-    const HEADER_H = 56;
-    const bodyH = panelHeight - HEADER_H;
+    const HEADER_H = 52;
+    const bodyH    = (isMax ? window.innerHeight * MAX_H_RATIO : panelH) - HEADER_H;
+    const isSuccess = status === 'success';
+
+    const TABS = [['nodes', 'Timeline'], ['output', 'Output'], ['summary', 'Stats']];
 
     return (
-        <div className="absolute bottom-0 left-0 right-0 z-40 flex flex-col"
-            style={{ height: panelHeight, transition: isDragging.current ? 'none' : 'height 0.12s ease' }}>
-
-            {/* ─── Drag Handle ─── */}
+        <div
+            className="absolute bottom-0 left-0 right-0 z-40 flex flex-col"
+            style={{
+                height: isMax ? window.innerHeight * MAX_H_RATIO : panelH,
+                transition: dragging.current ? 'none' : 'height 0.12s ease',
+                animation: 'slideUp 0.25s ease',
+            }}
+        >
+            {/* Drag handle */}
             <div
-                className="flex flex-col items-center justify-center pb-1 group select-none absolute left-0 right-0"
-                style={{ top: -24, cursor: 'ns-resize', paddingTop: 6 }}
+                className="flex flex-col items-center justify-center absolute left-0 right-0 group select-none"
+                style={{ top: -20, cursor: 'ns-resize', paddingTop: 6, paddingBottom: 4 }}
                 onMouseDown={onMouseDown}
-                onTouchStart={onTouchStart}
             >
-                <div className="w-14 h-1.5 rounded-full bg-slate-700 group-hover:bg-slate-500 transition-colors" />
-                <GripHorizontal size={13} className="text-slate-700 group-hover:text-slate-500 transition-colors mt-0.5" />
-                <p className="text-[0.62rem] text-slate-700 group-hover:text-slate-500 transition-colors m-0 font-medium leading-none mt-0.5">drag to resize</p>
+                <div className="w-10 h-1 rounded-full transition-colors group-hover:bg-white/20"
+                     style={{ background: 'rgba(255,255,255,0.08)' }} />
+                <GripHorizontal size={11} className="mt-0.5 group-hover:opacity-60 transition-opacity"
+                                style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
             </div>
 
-            {/* ─── Header Bar ─── */}
-            <div className={`flex items-center justify-between px-5 py-0 border-t border-l border-r rounded-t-3xl shadow-[0_-12px_40px_rgba(0,0,0,0.5)] backdrop-blur-2xl flex-shrink-0 ${status === 'success' ? 'bg-slate-900/97 border-emerald-500/25' : 'bg-slate-900/97 border-red-500/25'}`}
-                style={{ height: HEADER_H }}>
-
-                {/* Left: Status */}
-                <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 animate-pulse ${status === 'success' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.8)]'}`} />
-                    <span className="text-white font-bold text-[0.88rem] whitespace-nowrap">
-                        {status === 'success' ? 'Execution Successful' : 'Execution Failed'}
-                    </span>
-                    <div className="hidden md:flex items-center gap-2 text-[0.7rem]">
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/20">{successCount} passed</span>
-                        {failCount > 0 && <span className="px-2 py-0.5 rounded-md bg-red-500/15 text-red-400 font-bold border border-red-500/20">{failCount} failed</span>}
-                        {duration && <span className="flex items-center gap-1 text-slate-500"><Timer size={10} />{duration}ms</span>}
+            {/* Main surface */}
+            <div
+                className="flex flex-col flex-1 overflow-hidden"
+                style={{
+                    background: 'rgba(7,9,15,0.97)',
+                    backdropFilter: 'blur(32px)',
+                    borderTop: `1px solid ${isSuccess ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                    borderLeft: '1px solid var(--border)',
+                    borderRight: '1px solid var(--border)',
+                    borderRadius: '20px 20px 0 0',
+                    boxShadow: `0 -16px 64px rgba(0,0,0,0.7), 0 -1px 0 ${isSuccess ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'} inset`,
+                }}
+            >
+                {/* Header */}
+                <div
+                    className="flex items-center justify-between px-5 flex-shrink-0"
+                    style={{ height: HEADER_H, borderBottom: '1px solid var(--border)' }}
+                >
+                    {/* Status + counts */}
+                    <div className="flex items-center gap-3">
+                        <div
+                            className="w-2 h-2 rounded-full"
+                            style={{
+                                background: isSuccess ? '#10b981' : '#ef4444',
+                                boxShadow: `0 0 8px ${isSuccess ? 'rgba(16,185,129,0.8)' : 'rgba(239,68,68,0.8)'}`,
+                            }}
+                        />
+                        <span className="text-sm font-bold" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-head)' }}>
+                            {isSuccess ? 'Execution Complete' : 'Execution Failed'}
+                        </span>
+                        <div className="flex items-center gap-1.5 text-[0.65rem] font-bold">
+                            <span className="px-2 py-0.5 rounded-md" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)', fontFamily: 'var(--font-mono)' }}>
+                                {successCount} ok
+                            </span>
+                            {failCount > 0 && (
+                                <span className="px-2 py-0.5 rounded-md" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', fontFamily: 'var(--font-mono)' }}>
+                                    {failCount} failed
+                                </span>
+                            )}
+                            {duration && (
+                                <span className="flex items-center gap-1" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                    <Timer size={9} />{duration}ms
+                                </span>
+                            )}
+                        </div>
                     </div>
-                </div>
 
-                {/* Centre: Tabs */}
-                <div className="flex items-center gap-0.5 bg-black/30 p-1 rounded-xl border border-white/5">
-                    {[['nodes', 'Node Results'], ['output', 'Output'], ['summary', 'Summary']].map(([key, label]) => (
-                        <button key={key} onClick={() => setActiveTab(key)}
-                            className={`px-3 py-1.5 rounded-lg text-[0.72rem] font-bold transition-all whitespace-nowrap cursor-pointer ${activeTab === key ? 'bg-white/15 text-white' : 'text-slate-500 hover:text-white'}`}
-                            style={{ border: 'none', background: activeTab === key ? 'rgba(255,255,255,0.15)' : 'transparent' }}>
-                            {label}
-                        </button>
-                    ))}
-                </div>
-
-                {/* Right: Controls */}
-                <div className="flex items-center gap-2">
-                    {/* Publish button — only on success */}
-                    {status === 'success' && (
-                        <button
-                            onClick={onPublish}
-                            style={{ border: 'none', background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', cursor: 'pointer', padding: '7px 14px', borderRadius: '10px', color: '#fff', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13, boxShadow: '0 4px 14px rgba(124,58,237,0.45)', whiteSpace: 'nowrap' }}
-                            onMouseEnter={e => e.currentTarget.style.filter = 'brightness(1.15)'}
-                            onMouseLeave={e => e.currentTarget.style.filter = ''}
-                        >
-                            <Rocket size={14} /> Publish
-                        </button>
-                    )}
-                    <button onClick={toggleMaximize} title={isMaximized ? 'Restore' : 'Maximize'}
-                        style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.05)', cursor: 'pointer', padding: '6px', borderRadius: '10px', color: '#94a3b8', display: 'flex', alignItems: 'center' }}
-                        onMouseEnter={e => e.currentTarget.style.color = '#fff'}
-                        onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
-                        {isMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                    </button>
-                    <button onClick={onClose}
-                        style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.05)', cursor: 'pointer', padding: '6px', borderRadius: '10px', color: '#94a3b8', display: 'flex', alignItems: 'center' }}
-                        onMouseEnter={e => e.currentTarget.style.color = '#fff'}
-                        onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}>
-                        <X size={16} />
-                    </button>
-                </div>
-            </div>
-
-            {/* ─── Scrollable Body ─── */}
-            <div className="overflow-y-auto bg-slate-950/98 backdrop-blur-2xl border-l border-r border-b border-white/5"
-                style={{ height: bodyH, minHeight: 0 }}>
-
-                {/* Nodes Tab */}
-                {activeTab === 'nodes' && (
-                    <div className="p-4 flex flex-col gap-3">
-                        {nodeLogs.length === 0 && <p className="text-slate-500 text-center py-10 text-sm">No node execution data.</p>}
-                        {nodeLogs.map((log, i) => (
-                            <NodeResultCard key={log.nodeId} log={log} index={i} nodeLabel={getNodeLabel(log.nodeId)} />
+                    {/* Tabs */}
+                    <div
+                        className="flex items-center gap-0.5 p-1 rounded-xl"
+                        style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)' }}
+                    >
+                        {TABS.map(([key, label]) => (
+                            <button
+                                key={key}
+                                onClick={() => setTab(key)}
+                                style={{
+                                    padding: '5px 12px',
+                                    borderRadius: 8,
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    fontFamily: 'var(--font-body)',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    background: tab === key ? 'rgba(255,255,255,0.1)' : 'transparent',
+                                    color: tab === key ? 'var(--text-primary)' : 'var(--text-muted)',
+                                }}
+                            >
+                                {label}
+                            </button>
                         ))}
                     </div>
-                )}
 
-                {/* Output Tab */}
-                {activeTab === 'output' && (
-                    <div className="p-5 flex flex-col gap-4">
-                        <div className="flex items-center justify-between">
-                            <p className="text-[0.78rem] text-slate-400 font-bold uppercase tracking-widest m-0">Last Node Output</p>
-                            {totalOutput && <CopyButton text={typeof totalOutput === 'object' ? JSON.stringify(totalOutput, null, 2) : String(totalOutput)} />}
-                        </div>
-                        {totalOutput ? (
-                            <pre className="bg-black/50 border border-emerald-500/15 rounded-2xl p-5 text-[0.82rem] text-emerald-200 font-mono whitespace-pre-wrap break-all m-0">
-                                {typeof totalOutput === 'object' ? JSON.stringify(totalOutput, null, 2) : String(totalOutput)}
-                            </pre>
-                        ) : (
-                            <div className="p-8 rounded-2xl bg-white/[0.02] border border-white/5 text-center text-slate-500">No output from final node.</div>
+                    {/* Controls */}
+                    <div className="flex items-center gap-2">
+                        {isSuccess && (
+                            <button
+                                onClick={onPublish}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-[0.75rem] font-bold"
+                                style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-head)' }}
+                            >
+                                <Rocket size={12} /> Publish
+                            </button>
                         )}
-                        {status === 'failure' && error && (
-                            <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20">
-                                <p className="text-[0.75rem] font-bold text-red-400 uppercase tracking-widest mb-2">Workflow Error</p>
-                                <pre className="text-[0.82rem] text-red-300 font-mono m-0 whitespace-pre-wrap">{error}</pre>
-                            </div>
-                        )}
+                        <button
+                            onClick={() => setIsMax(m => !m)}
+                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 8, padding: 6, cursor: 'pointer', color: 'var(--text-muted)', lineHeight: 0 }}
+                        >
+                            {isMax ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                        </button>
+                        <button
+                            onClick={onClose}
+                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 8, padding: 6, cursor: 'pointer', color: 'var(--text-muted)', lineHeight: 0 }}
+                        >
+                            <X size={14} />
+                        </button>
                     </div>
-                )}
+                </div>
 
-                {/* Summary Tab */}
-                {activeTab === 'summary' && (
-                    <div className="p-5 flex flex-col gap-4">
-                        <div className="grid grid-cols-4 gap-3">
-                            {[
-                                { label: 'Total Nodes', value: nodeLogs.length, cls: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
-                                { label: 'Successful', value: successCount, cls: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
-                                { label: 'Failed', value: failCount, cls: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
-                                { label: 'Total Time', value: duration ? `${duration}ms` : 'N/A', cls: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' },
-                            ].map(({ label, value, cls, bg }) => (
-                                <div key={label} className={`p-4 rounded-2xl border ${bg} flex flex-col gap-1`}>
-                                    <span className={`text-2xl font-black ${cls}`}>{value}</span>
-                                    <span className="text-[0.65rem] text-slate-500 uppercase tracking-widest font-bold">{label}</span>
-                                </div>
+                {/* Body */}
+                <div className="overflow-y-auto flex-1" style={{ height: bodyH }}>
+                    {/* Timeline tab */}
+                    {tab === 'nodes' && (
+                        <div className="p-4 flex flex-col gap-2">
+                            {nodeLogs.length === 0 && (
+                                <p className="text-center py-10 text-sm" style={{ color: 'var(--text-muted)' }}>No execution data.</p>
+                            )}
+                            {nodeLogs.map((log, i) => (
+                                <TimelineRow key={log.nodeId} log={log} index={i} label={getLabel(log.nodeId)} delay={i * 60} />
                             ))}
                         </div>
-                        <div className="flex flex-col gap-2">
-                            <p className="text-[0.7rem] uppercase tracking-widest text-slate-500 font-bold m-0">Execution Timeline</p>
-                            <div className="flex flex-col gap-1.5">
-                                {nodeLogs.map((log, i) => (
-                                    <div key={log.nodeId} className="flex items-center gap-3">
-                                        <span className="text-[0.7rem] text-slate-600 font-mono w-5 text-right flex-shrink-0">{i + 1}</span>
-                                        <div className={`h-2 rounded-full flex-shrink-0 ${log.status === 'success' ? 'bg-emerald-500' : 'bg-red-500'}`}
-                                            style={{ width: `${Math.max(10, Math.min(100, ((log.duration || 50) / (duration || 1)) * 100))}%` }} />
-                                        <span className="text-[0.78rem] text-slate-300 font-medium flex-1 min-w-0 truncate">{getNodeLabel(log.nodeId)}</span>
-                                        <span className="text-[0.7rem] text-slate-500 font-mono whitespace-nowrap flex-shrink-0">{log.duration ? `${log.duration}ms` : '--'}</span>
+                    )}
+
+                    {/* Output tab */}
+                    {tab === 'output' && (
+                        <div className="p-5 flex flex-col gap-3">
+                            <p className="text-[0.7rem] font-black uppercase tracking-widest m-0" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                Final Output
+                            </p>
+                            {totalOutput ? (
+                                <pre className="m-0 p-4 rounded-xl text-[0.8rem] whitespace-pre-wrap break-all"
+                                     style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(16,185,129,0.15)', color: '#6ee7b7', fontFamily: 'var(--font-mono)' }}>
+                                    {typeof totalOutput === 'object' ? JSON.stringify(totalOutput, null, 2) : String(totalOutput)}
+                                </pre>
+                            ) : (
+                                <p className="text-sm text-center py-6" style={{ color: 'var(--text-muted)' }}>No output from final node.</p>
+                            )}
+                            {!isSuccess && error && (
+                                <div className="p-4 rounded-xl" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <AlertCircle size={13} style={{ color: '#ef4444' }} />
+                                        <p className="text-[0.7rem] font-black uppercase m-0" style={{ color: '#ef4444', fontFamily: 'var(--font-mono)' }}>Workflow Error</p>
+                                    </div>
+                                    <pre className="text-[0.8rem] m-0 whitespace-pre-wrap" style={{ color: '#fca5a5', fontFamily: 'var(--font-mono)' }}>{error}</pre>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Stats tab */}
+                    {tab === 'summary' && (
+                        <div className="p-5 flex flex-col gap-4">
+                            <div className="grid grid-cols-4 gap-3">
+                                {[
+                                    { label: 'Nodes',   value: nodeLogs.length,                color: '#00d4ff', bg: 'rgba(0,212,255,0.08)',   border: 'rgba(0,212,255,0.2)' },
+                                    { label: 'Passed',  value: successCount,                   color: '#10b981', bg: 'rgba(16,185,129,0.08)',   border: 'rgba(16,185,129,0.2)' },
+                                    { label: 'Failed',  value: failCount,                      color: '#ef4444', bg: 'rgba(239,68,68,0.08)',    border: 'rgba(239,68,68,0.2)' },
+                                    { label: 'Time',    value: duration ? `${duration}ms` : '—', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)' },
+                                ].map(({ label, value, color, bg, border }) => (
+                                    <div key={label} className="p-4 rounded-2xl flex flex-col gap-1"
+                                         style={{ background: bg, border: `1px solid ${border}` }}>
+                                        <span className="text-xl font-black" style={{ color, fontFamily: 'var(--font-mono)' }}>{value}</span>
+                                        <span className="text-[0.6rem] uppercase tracking-widest font-bold" style={{ color: 'var(--text-muted)' }}>{label}</span>
                                     </div>
                                 ))}
                             </div>
+                            {/* Timeline bar chart */}
+                            <div className="flex flex-col gap-2">
+                                <p className="text-[0.65rem] font-black uppercase tracking-widest m-0" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                                    Node Duration Breakdown
+                                </p>
+                                {nodeLogs.map((log, i) => {
+                                    const pct = Math.max(4, Math.min(100, ((log.duration || 50) / (duration || 1)) * 100));
+                                    return (
+                                        <div key={log.nodeId} className="flex items-center gap-3">
+                                            <span className="text-[0.6rem] font-mono w-4 text-right flex-shrink-0" style={{ color: 'var(--text-muted)' }}>{i + 1}</span>
+                                            <div
+                                                className="h-2 rounded-full flex-shrink-0"
+                                                style={{
+                                                    width: `${pct}%`,
+                                                    background: log.status === 'success'
+                                                        ? 'linear-gradient(90deg,#10b981,#059669)'
+                                                        : 'linear-gradient(90deg,#ef4444,#dc2626)',
+                                                    transition: 'width 0.6s ease',
+                                                }}
+                                            />
+                                            <span className="text-[0.72rem] font-medium flex-1 truncate" style={{ color: 'var(--text-secondary)' }}>{getLabel(log.nodeId)}</span>
+                                            <span className="text-[0.65rem] flex-shrink-0" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{log.duration ? `${log.duration}ms` : '—'}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         </div>
     );
