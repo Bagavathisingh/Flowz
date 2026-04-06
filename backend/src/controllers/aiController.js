@@ -11,6 +11,14 @@ const genAI = new GoogleGenerativeAI(
     process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.OPENAI_API_KEY || ''
 );
 
+// ─── Helper: Extract JSON from AI text response ────────────────────────────────
+function extractJson(text) {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start === -1 || end === -1) throw new Error('AI output contained no JSON object.');
+    return text.substring(start, end + 1).trim();
+}
+
 // ─── Zod schema — strict WorkflowSchema ───────────────────────────────────────
 const NodeConfigSchema = z.object({
     method:            z.string().optional(),
@@ -20,8 +28,10 @@ const NodeConfigSchema = z.object({
     subject:           z.string().optional(),
     smtp_host:         z.string().optional(),
     smtp_port:         z.number().optional(),
-    duration_seconds:  z.number().optional(),
+    wait_time:         z.number().optional(),
     collection:        z.string().optional(),
+    uri:               z.string().optional(),
+    document:          z.string().optional(),
     connection_string: z.string().optional(),
     provider:          z.enum(['google', 'openai', 'nvidia']).optional(),
     model:             z.string().optional(),
@@ -113,8 +123,6 @@ const WORKFLOW_RESPONSE_SCHEMA = {
     required: ['nodes', 'edges']
 };
 
-// ─── Shared system prompt ──────────────────────────────────────────────────────
-// ─── Shared system prompt ──────────────────────────────────────────────────────
 const WORKFLOW_SYSTEM_PROMPT = `You are an advanced workflow architect generator like n8n or Zapier. 
 Your goal is to convert user requirements into a high-quality, executable Directed Acyclic Graph (DAG) JSON.
 
@@ -131,13 +139,15 @@ Node Type Reference & Schema:
 - delay:               { "wait_time": number } (in MILLISECONDS)
 - save_to_database:    { "uri": "string", "collection": "string", "document": "string (JSON)" }
 - ai_model:            { "provider": "google"|"openai"|"nvidia", "model": "string", "prompt": "string", "system_prompt": "string" }
+  *   CRITICAL: For ai_model nodes, the 'system_prompt' MUST be a detailed persona (e.g. "You are an AI customer service agent..."). 
+  *   CRITICAL: The 'prompt' MUST use template variables to process input (e.g. "Summarize this: {{input.text}}"). DO NOT leave these blank.
 - ifElse:              { "condition": "javascript_expression" } (evaluates payload or results)
 - log:                 { "message": "string" }
 
 Templating & Variables:
-- Access Trigger Data: Use {{input.text}} for Telegram/Chat messages, or {{payload.field}} for webhooks.
-- Access Node Results: Use {{results.NODE_LABEL.output}} or {{results.NODE_ID.output}}.
-- Interpolate strings using double curly braces: "Process {{input.text}} right now".
+- Access Trigger Data: Use {{input.text}} for Telegram/Chat messages, or {{payload.form_data.field}} for forms, or {{payload.field}} for webhooks.
+- Access Node Results: Use {{results.NODE_LABEL.output}}. (Example: {{results.AI_Assistant.output}})
+- Interpolate strings using double curly braces: "Send this to {{payload.form_data.email}}".
 
 Graph Rules:
 1. Every node MUST have: id (unique string), type (from list), data: { label: "Human Readable Name", config: { ... } }, position: { x, y }
@@ -149,14 +159,13 @@ Graph Rules:
 
 const MAX_ATTEMPTS = 2;
 
-// ─── Gemini self-correcting generation helper ──────────────────────────────────
 const selfCorrectingGenerate = async (modelName, userPrompt, previousAttempt = null) => {
     const model = genAI.getGenerativeModel({
         model: modelName,
         generationConfig: {
             responseMimeType: 'application/json',
             responseSchema:   WORKFLOW_RESPONSE_SCHEMA,
-            temperature:      0.3,
+            temperature:      0.1,
         }
     });
 
@@ -172,20 +181,20 @@ const selfCorrectingGenerate = async (modelName, userPrompt, previousAttempt = n
 
     const result  = await model.generateContent({ contents });
     const rawText = result.response.text();
-    const cleaned = rawText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const cleaned = extractJson(rawText);
     const parsed  = JSON.parse(cleaned);
 
     const zodResult = WorkflowSchema.safeParse(parsed);
     if (!zodResult.success) {
-        const errors = zodResult.error.errors.map(e => `  • ${e.path.join('.')} — ${e.message}`).join('\n');
+        const issues = zodResult.error?.issues || zodResult.error?.errors || [];
+        const errors = issues.map(e => `  • ${e.path.join('.')} — ${e.message}`).join('\n');
         return { success: false, rawText, errors, parsed };
     }
 
     return { success: true, data: zodResult.data };
 };
 
-// ─── NEW: NVIDIA NIM fallback generation helper ────────────────────────────────
-const generateWithNvidia = async (userPrompt, previousAttempt = null) => {
+const generateWithNvidia = async (userPrompt, previousAttempt = null, modelName = 'meta/llama-3.3-70b-instruct') => {
     const apiKey = process.env.NVIDIA_API_KEY;
     if (!apiKey) {
         console.warn('[AI] NVIDIA_API_KEY not set — skipping NVIDIA fallback.');
@@ -197,27 +206,21 @@ const generateWithNvidia = async (userPrompt, previousAttempt = null) => {
         : '';
 
     const messages = [
-        {
-            role: 'system',
-            content: WORKFLOW_SYSTEM_PROMPT
-        },
-        {
-            role: 'user',
-            content: `${correctionPrefix}User request: ${userPrompt}`
-        }
+        { role: 'system', content: WORKFLOW_SYSTEM_PROMPT },
+        { role: 'user', content: `${correctionPrefix}User request: ${userPrompt}` }
     ];
 
     const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-            'Content-Type':  'application/json',
+            'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-            model:       'meta/llama-3.3-70b-instruct',
+            model: modelName,
             messages,
-            temperature: 0.2,
-            max_tokens:  2048,
+            temperature: 0.1,
+            max_tokens: 2048,
         })
     });
 
@@ -231,312 +234,162 @@ const generateWithNvidia = async (userPrompt, previousAttempt = null) => {
 
     const json    = await response.json();
     const rawText = json.choices?.[0]?.message?.content || '';
-    const cleaned = rawText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    const cleaned = extractJson(rawText);
     const parsed  = JSON.parse(cleaned);
 
     const zodResult = WorkflowSchema.safeParse(parsed);
     if (!zodResult.success) {
-        const errors = zodResult.error.errors.map(e => `  • ${e.path.join('.')} — ${e.message}`).join('\n');
+        const issues = zodResult.error?.issues || zodResult.error?.errors || [];
+        const errors = issues.map(e => `  • ${e.path.join('.')} — ${e.message}`).join('\n');
         return { success: false, rawText, errors, parsed };
     }
 
     return { success: true, data: zodResult.data };
 };
 
-// ─── generateWorkflowConfig ────────────────────────────────────────────────────
 export const generateWorkflowConfig = async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-    // Faster models prioritized
-    const modelsToTry = [
-        'gemini-2.0-flash-lite',
-        'gemini-2.0-flash',
-        'gemini-2.5-flash'
-    ];
+    const modelsToTry = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
 
-    // Parallelize the primary attempt for maximum speed
     const fastModels = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
     console.log(`[AI] Racing models: ${fastModels.join(', ')}`);
     
     try {
         const result = await Promise.any(
             fastModels.map(model => selfCorrectingGenerate(model, prompt))
-        ).then(res => {
-            if (res.success) return res;
-            throw new Error('Initial generation failed');
-        });
+        );
 
         if (result.success) {
             console.log(`[AI] ✓ Parallel race winner: ${result.data?.nodes?.length} nodes`);
             return res.json(result.data);
         }
     } catch (e) {
-        console.warn('[AI] Parallel attempts failed or timed out. Falling back to serial cascade.', e.message);
+        console.warn('[AI] Parallel attempts failed or timed out. Falling back to serial cascade.');
     }
 
-    // ── Gemini cascade (Fallback) ─────────────────────────────────────────────
+    let isQuotaExceeded = false;
     for (const modelName of modelsToTry) {
+        if (isQuotaExceeded) break;
         console.log(`[AI] Attempting fallback generation with ${modelName}…`);
         let lastAttempt = null;
 
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
                 const result = await selfCorrectingGenerate(modelName, prompt, lastAttempt);
-
                 if (result.success) {
                     console.log(`[AI] ✓ Generation succeeded — model: ${modelName}, attempt: ${attempt}`);
                     return res.json(result.data);
                 }
-
-                console.warn(`[AI] ✗ Attempt ${attempt}/${MAX_ATTEMPTS} Zod validation failed:\n${result.errors}`);
                 lastAttempt = { errors: result.errors, rawText: result.rawText };
-
             } catch (error) {
                 console.error(`[AI] Error with ${modelName} attempt ${attempt}:`, error.message);
-
-                if (error.status === 429 || error.status === 503 || error.status === 404) {
-                    console.warn(`[AI] ${modelName} unavailable (${error.status}), skipping to next model…`);
+                if (error.message?.includes('429') || error.status === 429) {
+                    console.warn('[AI] Gemini quota exceeded. Jumping to stable fallback…');
+                    isQuotaExceeded = true;
                     break;
                 }
-
-                lastAttempt = {
-                    errors:  `JSON parse error: ${error.message}`,
-                    rawText: error.rawText || '(unparseable)'
-                };
+                if (error.status === 503 || error.status === 404) break;
             }
         }
-        console.warn(`[AI] ${modelName} exhausted all ${MAX_ATTEMPTS} correction attempts.`);
     }
 
     // ── NVIDIA NIM fallback ───────────────────────────────────────────────────
-    console.log('[AI] All Gemini models failed. Trying NVIDIA NIM fallback (meta/llama-3.3-70b-instruct)…');
-    let nvidiaLastAttempt = null;
+    console.log('[AI] All Gemini models failed. Trying NVIDIA NIM (High-Speed Mode)…');
+    const nvidiaModels = [
+        'meta/llama-3.1-8b-instruct',           // Fastest
+        'deepseek-ai/deepseek-v3.2',           // Requested powerhouse
+        'nvidia/llama-3.1-nemotron-70b-instruct' // High-quality fallback
+    ];
 
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        try {
-            const result = await generateWithNvidia(prompt, nvidiaLastAttempt);
+    for (const nvidiaModel of nvidiaModels) {
+        console.log(`[AI] Attempting NVIDIA NIM with: ${nvidiaModel}…`);
+        let nvidiaLastAttempt = null;
 
-            if (result.success) {
-                console.log(`[AI] ✓ NVIDIA NIM succeeded on attempt ${attempt}`);
-                return res.json(result.data);
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                const result = await generateWithNvidia(prompt, nvidiaLastAttempt, nvidiaModel);
+                if (result.success) {
+                    console.log(`[AI] ✓ NVIDIA NIM (${nvidiaModel}) succeeded on attempt ${attempt}`);
+                    return res.json(result.data);
+                }
+                nvidiaLastAttempt = { errors: result.errors, rawText: result.rawText };
+            } catch (error) {
+                console.error(`[AI] NVIDIA NIM error (${nvidiaModel}) attempt ${attempt}:`, error.message);
+                if (error.status === 429 || error.status === 503 || error.status === 401) break;
+                nvidiaLastAttempt = { errors: `Parse error: ${error.message}`, rawText: '' };
             }
-
-            console.warn(`[AI] ✗ NVIDIA attempt ${attempt}/${MAX_ATTEMPTS} Zod validation failed:\n${result.errors}`);
-            nvidiaLastAttempt = { errors: result.errors, rawText: result.rawText };
-
-        } catch (error) {
-            console.error(`[AI] NVIDIA NIM error attempt ${attempt}:`, error.message);
-
-            if (error.status === 429 || error.status === 503 || error.status === 401) {
-                console.warn(`[AI] NVIDIA NIM unavailable (${error.status}), stopping fallback.`);
-                break;
-            }
-
-            nvidiaLastAttempt = {
-                errors:  `JSON parse error: ${error.message}`,
-                rawText: ''
-            };
         }
     }
 
-    console.warn('[AI] NVIDIA NIM fallback also failed. Returning static fallback workflow.');
-
-    // ── Static fallback ───────────────────────────────────────────────────────
     return res.json({
         nodes: [
-            { id: 'node_1', type: 'webhook_trigger', data: { label: 'Incoming Webhook', config: { method: 'POST' } },                              position: { x: 300, y: 100 } },
-            { id: 'node_2', type: 'ai_model',        data: { label: 'AI Process',       config: { provider: 'google', prompt: 'Summarize: {{input}}' } }, position: { x: 300, y: 300 } },
-            { id: 'node_3', type: 'log',             data: { label: 'Log Result',        config: { message: 'Workflow complete' } },                 position: { x: 300, y: 500 } }
+            { id: 'node_1', type: 'webhook_trigger', data: { label: 'Incoming Webhook', config: { method: 'POST' } }, position: { x: 300, y: 100 } },
+            { id: 'node_2', type: 'ai_model', data: { label: 'AI Process', config: { provider: 'google', prompt: 'Summarize: {{input}}' } }, position: { x: 300, y: 300 } },
+            { id: 'node_3', type: 'log', data: { label: 'Log Result', config: { message: 'Workflow complete' } }, position: { x: 300, y: 500 } }
         ],
         edges: [
             { id: 'e1', source: 'node_1', target: 'node_2' },
             { id: 'e2', source: 'node_2', target: 'node_3' }
         ],
-        is_fallback: true,
-        note: 'AI service is currently at capacity. Here is a starter template.'
+        is_fallback: true
     });
 };
 
-// ─── modifyWorkflowConfig ──────────────────────────────────────────────────────
 export const modifyWorkflowConfig = async (req, res) => {
     const { currentWorkflow, prompt, selectedNodeId } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-    const modelsToTry = ['gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-2.5-flash'];
+    const modelsToTry = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
 
     const modifySystemPrompt = `You are a professional workflow architect.
 Modify the provided workflow (nodes and edges) based on the user's instructions.
 Keep existing node IDs where possible.
 ${selectedNodeId ? `The node with id "${selectedNodeId}" is currently selected — prioritise modifying it if the prompt is ambiguous.` : ''}
 
-CRITICAL Node Structure:
-Each node MUST have: "id" (string), "type" (from allowed list), "data": { "label": string, "config": {} }
-
-Allowed Node Types: webhook_trigger, schedule_trigger, manual_trigger, app_event, form_submission,
-chat_message, sub_workflow_trigger, http_request, send_email, delay, save_to_database,
-ai_model, ifElse, log
-
 Current Workflow:
 ${JSON.stringify(currentWorkflow, null, 2)}
 
 Return ONLY valid JSON: { "nodes": [...], "edges": [...] }`;
 
-    // ── Gemini cascade ────────────────────────────────────────────────────────
     for (const modelName of modelsToTry) {
-        console.log(`[AI] Attempting modification with ${modelName}…`);
         let lastAttempt = null;
-
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                const model = genAI.getGenerativeModel({
-                    model: modelName,
-                    generationConfig: {
-                        responseMimeType: 'application/json',
-                        responseSchema:   WORKFLOW_RESPONSE_SCHEMA,
-                        temperature:      0.2
-                    }
-                });
-
-                const correctionPrefix = lastAttempt
-                    ? `Your previous response had errors:\n${lastAttempt.errors}\n\nFix them in the new response.\n\n`
-                    : '';
-
-                const result    = await model.generateContent([
-                    { text: modifySystemPrompt },
-                    { text: `${correctionPrefix}User instruction: ${prompt}` }
-                ]);
-                const rawText   = result.response.text().replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-                const parsed    = JSON.parse(rawText);
+                const model = genAI.getGenerativeModel({ model: modelName });
+                const result = await model.generateContent(`${modifySystemPrompt}\n\nUser instruction: ${prompt}`);
+                const rawText = result.response.text().replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+                const parsed = JSON.parse(rawText);
                 const zodResult = WorkflowSchema.safeParse(parsed);
-
-                if (zodResult.success) {
-                    console.log(`[AI] ✓ Modification succeeded — model: ${modelName}, attempt: ${attempt}`);
-                    return res.json(zodResult.data);
-                }
-
-                const errors = zodResult.error.errors.map(e => `  • ${e.path.join('.')} — ${e.message}`).join('\n');
-                console.warn(`[AI] ✗ Modification attempt ${attempt} Zod errors:\n${errors}`);
-                lastAttempt = { errors, rawText };
-
+                if (zodResult.success) return res.json(zodResult.data);
+                lastAttempt = { errors: zodResult.error.issues.map(i => i.message).join(','), rawText };
             } catch (error) {
-                console.error(`[AI] Modification error ${modelName} attempt ${attempt}:`, error.message);
-                if (error.status === 429 || error.status === 503) break;
-                lastAttempt = { errors: `Parse error: ${error.message}`, rawText: '' };
+                if (error.status === 429) break;
             }
         }
     }
-
-    // ── NVIDIA NIM fallback for modify ────────────────────────────────────────
-    console.log('[AI] Gemini modification failed. Trying NVIDIA NIM fallback…');
-    let nvidiaLastAttempt = null;
-
-    const nvidiaModifyPrompt = `${modifySystemPrompt}\n\nUser instruction: ${prompt}`;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        try {
-            const result = await generateWithNvidia(nvidiaModifyPrompt, nvidiaLastAttempt);
-
-            if (result.success) {
-                console.log(`[AI] ✓ NVIDIA NIM modification succeeded on attempt ${attempt}`);
-                return res.json(result.data);
-            }
-
-            console.warn(`[AI] ✗ NVIDIA modify attempt ${attempt}/${MAX_ATTEMPTS} Zod errors:\n${result.errors}`);
-            nvidiaLastAttempt = { errors: result.errors, rawText: result.rawText };
-
-        } catch (error) {
-            console.error(`[AI] NVIDIA NIM modify error attempt ${attempt}:`, error.message);
-
-            if (error.status === 429 || error.status === 503 || error.status === 401) {
-                console.warn(`[AI] NVIDIA NIM unavailable (${error.status}), stopping.`);
-                break;
-            }
-
-            nvidiaLastAttempt = { errors: `Parse error: ${error.message}`, rawText: '' };
-        }
-    }
-
-    console.warn('[AI] Modification failed — returning current workflow unchanged.');
-    return res.json({ ...currentWorkflow, is_fallback: true, note: 'AI service busy; workflow was not modified.' });
+    return res.json(currentWorkflow);
 };
 
-// ─── explainErrorLog ───────────────────────────────────────────────────────────
-// (unchanged)
 export const explainErrorLog = async (req, res) => {
     try {
         const { logs, error, currentWorkflow } = req.body;
-        const model = genAI.getGenerativeModel({
-            model: 'gemini-2.5-flash',
-            generationConfig: { responseMimeType: 'application/json' }
-        });
-
-        const prompt = `You are a professional workflow debugger. An error occurred while executing the following workflow.
-
-Current Workflow:
-${JSON.stringify(currentWorkflow, null, 2)}
-
-Execution Logs:
-${JSON.stringify(logs, null, 2)}
-
-Error Message: ${error}
-
-Output JSON with:
-- "explanation": Clear summary of what went wrong + ask permission before applying any fix.
-- "cause": The specific node or configuration that caused it.
-- "fix": Human-readable instruction on how to fix it.
-- "suggestedFixWorkflow": (Optional) Updated nodes and edges JSON using original node IDs.
-
-IMPORTANT: Return ONLY the JSON object.`;
-
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-        res.json(JSON.parse(text));
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const result = await model.generateContent(`Explain this error:\n${error}\nLogs:\n${JSON.stringify(logs)}`);
+        res.json({ explanation: result.response.text() });
     } catch (error) {
-        console.error('[AI] Debug error:', error);
         res.status(500).json({ error: error.message });
     }
 };
 
-// ─── chatDebug ─────────────────────────────────────────────────────────────────
-// (unchanged)
 export const chatDebug = async (req, res) => {
     try {
-        const { message, history, currentWorkflow, lastError } = req.body;
-        const model = genAI.getGenerativeModel({
-            model: 'gemini-2.0-flash',
-            generationConfig: { responseMimeType: 'application/json' }
-        });
-
-        const prompt = `You are a helpful AI Debug Assistant for a workflow builder tool (Flowz / miniN8N).
-
-Current Workflow:
-${JSON.stringify(currentWorkflow, null, 2)}
-
-Last Known Error: ${lastError || 'None'}
-
-Chat History:
-${JSON.stringify(history, null, 2)}
-
-New User Message: "${message}"
-
-Instructions:
-1. Focus ONLY on workflow errors, logic issues, or debugging steps.
-2. If you provide a 'suggestedFixWorkflow', your 'text' MUST ask for the user's consent first.
-3. NEVER apply changes without explicit permission.
-4. DO NOT change node positions or visual UI properties.
-
-Output JSON:
-- "text": Your response (including permission prompt if a fix is offered).
-- "suggestedFixWorkflow": (Optional) { "nodes": [...], "edges": [...] }
-
-Return ONLY the JSON object.`;
-
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-        res.json(JSON.parse(text));
+        const { message, history } = req.body;
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const result = await model.generateContent(`User: ${message}\nHistory: ${JSON.stringify(history)}`);
+        res.json({ text: result.response.text() });
     } catch (error) {
-        console.error('[AI] Chat debug error:', error);
         res.status(500).json({ error: error.message });
     }
 };
