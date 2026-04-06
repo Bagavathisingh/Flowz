@@ -202,18 +202,33 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                                 >
                                     <option value="openai">OpenAI</option>
                                     <option value="anthropic">Anthropic</option>
-                                    <option value="gemini">Google Gemini</option>
+                                    <option value="google">Google Gemini</option>
+                                    <option value="nvidia">NVIDIA (OpenAI Compatible)</option>
                                 </select>
                             </ConfigField>
                             <ConfigField label="Model">
-                                <input type="text" className="flowz-input" placeholder="gpt-4o" value={selectedNode.data.config?.model || ''} onChange={(e) => updateNodeConfig('model', e.target.value)} />
+                                <input
+                                    type="text"
+                                    className="flowz-input"
+                                    placeholder={
+                                        selectedNode.data.config?.provider === 'google' ? 'gemini-2.0-flash' :
+                                        selectedNode.data.config?.provider === 'nvidia' ? 'meta/llama-3.1-405b-instruct' :
+                                        'gpt-4o'
+                                    }
+                                    value={selectedNode.data.config?.model || ''}
+                                    onChange={(e) => updateNodeConfig('model', e.target.value)}
+                                />
                             </ConfigField>
                             <ConfigField label="API Key">
                                 <div className="relative">
                                     <input
                                         type={showAiKey ? "text" : "password"}
                                         className="flowz-input pr-10"
-                                        placeholder="sk-..."
+                                        placeholder={
+                                            selectedNode.data.config?.provider === 'google' ? 'GEMINI_API_KEY' : 
+                                            selectedNode.data.config?.provider === 'nvidia' ? 'nvapi-...' : 
+                                            'sk-...'
+                                        }
                                         value={selectedNode.data.config?.api_key || ''}
                                         onChange={(e) => updateNodeConfig('api_key', e.target.value)}
                                     />
@@ -231,7 +246,7 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                                 <textarea className="flowz-input" placeholder="You are a helpful assistant..." rows={3} value={selectedNode.data.config?.system_prompt || ''} onChange={(e) => updateNodeConfig('system_prompt', e.target.value)} />
                             </ConfigField>
                             <ConfigField label="User Prompt">
-                                <textarea className="flowz-input" placeholder="Analyze the following data: {{trigger.data}}" rows={4} value={selectedNode.data.config?.user_prompt || ''} onChange={(e) => updateNodeConfig('user_prompt', e.target.value)} />
+                                <textarea className="flowz-input" placeholder="Analyze the following data: {{trigger.data}}" rows={4} value={selectedNode.data.config?.prompt || ''} onChange={(e) => updateNodeConfig('prompt', e.target.value)} />
                             </ConfigField>
                         </>
                     )}
@@ -246,6 +261,38 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                             </ConfigField>
                             <ConfigField label="Document Data (JSON)">
                                 <textarea className="flowz-input font-mono text-[0.75rem]" placeholder='{"name": "{{trigger.name}}"}' rows={6} value={selectedNode.data.config?.document || ''} onChange={(e) => updateNodeConfig('document', e.target.value)} />
+                            </ConfigField>
+                        </>
+                    )}
+
+                    {selectedNode.data.type === 'app_event' && (
+                        <>
+                            <div className="p-3 rounded-xl mb-4" style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.2)' }}>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <Sparkles size={12} style={{ color: '#00d4ff' }} />
+                                    <p className="text-[0.65rem] font-black uppercase m-0" style={{ color: '#00d4ff', fontFamily: 'var(--font-mono)' }}>Telegram Setup</p>
+                                </div>
+                                <p className="text-[0.75rem] m-0" style={{ color: 'var(--text-secondary)' }}>
+                                    Enter your Bot Token from @BotFather. The bot will automatically register its webhook when you publish.
+                                </p>
+                            </div>
+                            <ConfigField label="Telegram Bot Token">
+                                <input 
+                                    type="password" 
+                                    className="flowz-input font-mono text-[0.75rem]" 
+                                    placeholder="123456789:ABCDEF..." 
+                                    value={selectedNode.data.config?.telegram_token || ''} 
+                                    onChange={(e) => updateNodeConfig('telegram_token', e.target.value)} 
+                                />
+                            </ConfigField>
+                            <ConfigField label="Target Chat ID" description="Optional: Bot will respond to sender by default.">
+                                <input 
+                                    type="text" 
+                                    className="flowz-input" 
+                                    placeholder="e.g. 987654321" 
+                                    value={selectedNode.data.config?.chat_id || ''} 
+                                    onChange={(e) => updateNodeConfig('chat_id', e.target.value)} 
+                                />
                             </ConfigField>
                         </>
                     )}
@@ -322,7 +369,7 @@ export default function PropertiesSidebar({ selectedNode, setSelectedNode, updat
                         </>
                     )}
 
-                    {(!['http_request', 'send_email', 'ai_model', 'save_to_database', 'delay', 'ifElse', 'log', 'webhook_trigger'].includes(selectedNode.data.type)) && (
+                    {(!['http_request', 'send_email', 'ai_model', 'save_to_database', 'app_event', 'delay', 'ifElse', 'log', 'webhook_trigger'].includes(selectedNode.data.type)) && (
                          <div className="flex flex-col gap-3 py-4 text-center">
                             <Info size={24} style={{ color: 'var(--text-muted)', margin: '0 auto' }} />
                             <p className="text-[0.8rem] m-0" style={{ color: 'var(--text-secondary)' }}>

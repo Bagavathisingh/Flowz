@@ -144,39 +144,39 @@ export default function PublishModal({ isOpen, onClose, nodes, edges, triggerNod
             // 2. Trigger-specific activation
             if (triggerType === 'app_event' && triggerConfig.telegram_token) {
                 // Register Telegram webhook
-                const tgRes = await axios.post(`${API_URL}/trigger/app-event/${workflowId}/register-telegram`, {
+                const tgRes = await axios.post(`${API_URL}/trigger/app-event/${finalWorkflowId}/register-telegram`, {
                     telegram_token: triggerConfig.telegram_token,
                 });
                 result.telegram = tgRes.data;
                 result.webhookUrl = tgRes.data.webhookUrl; // This is the ngrok URL from backend
-                result.endpointUrl = tgRes.data.webhookUrl || `${baseUrl}/api/trigger/app-event/${workflowId}`;
+                result.endpointUrl = tgRes.data.webhookUrl || `${baseUrl}/api/trigger/app-event/${finalWorkflowId}`;
 
             } else if (triggerType === 'schedule_trigger' && triggerConfig.interval) {
                 // Re-register schedule
-                await axios.post(`${API_URL}/trigger/schedule/${workflowId}`, {
+                await axios.post(`${API_URL}/trigger/schedule/${finalWorkflowId}`, {
                     interval: triggerConfig.interval,
                 });
                 result.interval = triggerConfig.interval;
                 result.endpointUrl = `Schedule active — runs every ${triggerConfig.interval}s`;
 
             } else if (triggerType === 'webhook_trigger') {
-                result.endpointUrl = `${baseUrl}/api/trigger/webhook/${workflowId}`;
+                result.endpointUrl = `${baseUrl}/api/trigger/webhook/${finalWorkflowId}`;
 
             } else if (triggerType === 'form_submission') {
-                result.endpointUrl = `${baseUrl}/api/trigger/form/${workflowId}`;
+                result.endpointUrl = `${baseUrl}/api/trigger/form/${finalWorkflowId}`;
 
             } else if (triggerType === 'sub_workflow_trigger') {
-                result.endpointUrl = `${baseUrl}/api/trigger/sub-workflow/${workflowId}`;
+                result.endpointUrl = `${baseUrl}/api/trigger/sub-workflow/${finalWorkflowId}`;
 
             } else if (triggerType === 'chat_message') {
-                result.endpointUrl = `${baseUrl}/api/trigger/chat/${workflowId}`;
+                result.endpointUrl = `${baseUrl}/api/trigger/chat/${finalWorkflowId}`;
                 result.chatPayloadExample = `{ "message": "Hello!" }`;
 
             } else if (triggerType === 'manual_trigger') {
-                result.endpointUrl = `${baseUrl}/api/trigger/manual/${workflowId}`;
+                result.endpointUrl = `${baseUrl}/api/trigger/manual/${finalWorkflowId}`;
 
             } else if (triggerType === 'other_ways') {
-                result.endpointUrl = `${baseUrl}/api/trigger/error/${workflowId}`;
+                result.endpointUrl = `${baseUrl}/api/trigger/error/${finalWorkflowId}`;
             }
 
             setPublishResult(result);

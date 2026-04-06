@@ -45,7 +45,6 @@ export default function CommandBar({
                 minWidth: 520,
             }}
         >
-            {/* ── Workflow name ── */}
             <div
                 className="flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer group flex-1"
                 style={{ background: editingName ? 'rgba(0,212,255,0.06)' : 'transparent', transition: 'background 0.2s' }}

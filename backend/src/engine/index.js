@@ -130,19 +130,33 @@ export const executeAction = async (action, context) => {
 
         case 'ai_model': {
             const provider  = action.config?.provider || 'google';
-            const apiKey    = action.config?.api_key || (provider === 'google'
-                ? (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY)
-                : process.env.OPENAI_API_KEY);
-            const modelName = action.config?.model || (provider === 'google' ? 'gemini-2.5-flash' : 'gpt-4o');
-            const finalPrompt  = action.config?.prompt || '';
+            const apiKey    = action.config?.api_key || (
+                provider === 'google' ? (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY) :
+                provider === 'nvidia' ? process.env.NVIDIA_API_KEY :
+                process.env.OPENAI_API_KEY
+            );
+            const modelName = action.config?.model || (
+                provider === 'google' ? 'gemini-2.0-flash' : 
+                provider === 'nvidia' ? 'meta/llama-3.1-405b-instruct' : 'gpt-4o'
+            );
+            const finalPrompt  = action.config?.prompt || action.config?.user_prompt || '';
             const systemPrompt = action.config?.system_prompt || '';
+            
             if (!apiKey) throw new Error(`API Key for ${provider} is missing.`);
+
             try {
                 if (provider === 'google') {
                     const genAI  = new GoogleGenerativeAI(apiKey);
                     const model  = genAI.getGenerativeModel({ model: modelName, systemInstruction: systemPrompt });
                     const result = await model.generateContent(finalPrompt);
                     return { provider: 'Google Gemini', model: modelName, output: result.response.text() };
+                } else if (provider === 'nvidia') {
+                    const nvidia = new OpenAI({ apiKey, baseURL: 'https://integrate.api.nvidia.com/v1' });
+                    const msgs = [];
+                    if (systemPrompt) msgs.push({ role: 'system', content: systemPrompt });
+                    msgs.push({ role: 'user', content: finalPrompt });
+                    const completion = await nvidia.chat.completions.create({ model: modelName, messages: msgs, timeout: 10000 });
+                    return { provider: 'NVIDIA', model: modelName, output: completion.choices[0].message.content };
                 } else {
                     const openai = new OpenAI({ apiKey });
                     const msgs   = [];

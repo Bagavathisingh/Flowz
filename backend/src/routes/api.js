@@ -17,118 +17,9 @@ router.use((req, res, next) => {
     next();
 });
 
-router.use(requireAuth);
-router.use('/secrets', secretRoutes);
-
+// ── Public Trigger Routes (No Auth) ──────────────────────────────────────────
 router.get('/trigger/test', (req, res) => res.json({ message: 'Trigger routes are active' }));
 
-router.post('/ai/generate-workflow', generateWorkflowConfig);
-router.post('/ai/modify-workflow', modifyWorkflowConfig);
-router.post('/ai/explain-error', explainErrorLog);
-router.post('/ai/chat-debug', chatDebug);
-
-// ── Execution History Routes ──────────────────────────────────────────────────
-router.get('/workflows/:id/runs', async (req, res) => {
-    try {
-        const wf = await Workflow.findById(req.params.id);
-        if (!wf || wf.userId.toString() !== req.user.id) return res.status(403).json({ error: 'Access denied' });
-
-        const runs = await ExecutionLog.find({ workflowId: req.params.id })
-            .sort({ createdAt: -1 })
-            .select('-nodeLogs.input -nodeLogs.result') // Omit heavy payload unless requested
-            .limit(50);
-            
-        res.json(runs);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-router.get('/workflows/:id/runs/:runId', async (req, res) => {
-    try {
-        const wf = await Workflow.findById(req.params.id);
-        if (!wf || wf.userId.toString() !== req.user.id) return res.status(403).json({ error: 'Access denied' });
-
-        const run = await ExecutionLog.findOne({ _id: req.params.runId, workflowId: req.params.id });
-        if (!run) return res.status(404).json({ error: 'Run not found' });
-        
-        res.json(run);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// ── Trigger API & Workflow Management ─────────────────────────────────────────
-router.post('/workflows/:id/execute', async (req, res) => {
-    try {
-        const { nodes, edges, payload } = req.body;
-        if (!nodes || !edges) return res.status(400).json({ error: 'Nodes and edges are required' });
-        // Passing request ID so logs get persisted for tests from UI
-        const result = await runWorkflow(nodes, edges, payload || {}, req.user.id, req.params.id, 'api');
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-router.get('/workflows', async (req, res) => {
-    try {
-        const workflows = await Workflow.find({ userId: req.user.id }).sort({ createdAt: -1 });
-        res.json(workflows);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-router.post('/workflows', async (req, res) => {
-    try {
-        const { name, nodes, edges } = req.body;
-        const saved = await new Workflow({ name, nodes, edges, userId: req.user.id }).save();
-
-        const scheduleTrigger = nodes?.find(n => n.data?.type === 'schedule_trigger');
-        if (scheduleTrigger && scheduleTrigger.data?.config?.interval) {
-            const cronExpr = intervalToCron(scheduleTrigger.data.config.interval);
-            registerSchedule(saved._id.toString(), cronExpr, async (ctx) => {
-                try {
-                    await runWorkflow(nodes, edges, ctx.trigger.payload, req.user.id, saved._id.toString(), 'schedule');
-                } catch (e) {
-                    console.error(`[SCHEDULER] Workflow ${saved._id} failed:`, e.message);
-                }
-            });
-        }
-
-        const chatTrigger = nodes?.find(n => n.data?.type === 'chat_message');
-        if (chatTrigger) {
-            registerChatTrigger(saved._id.toString(), async (ctx) => {
-                try {
-                    const result = await runWorkflow(nodes, edges, ctx.trigger.payload, req.user.id, saved._id.toString(), 'chat');
-                    const lastOutput = Object.values(result.nodeResults || {}).pop();
-                    const botReply = lastOutput?.response || lastOutput?.output || lastOutput?.result || JSON.stringify(lastOutput);
-                    addBotMessage(saved._id.toString(), botReply || 'Workflow completed.');
-                } catch (e) {
-                    addBotMessage(saved._id.toString(), `Error: ${e.message}`);
-                }
-            });
-        }
-
-        const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-        res.status(201).json({ ...saved.toObject(), baseUrl });
-    } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
-});
-
-router.delete('/workflows/:id', async (req, res) => {
-    try {
-        stopSchedule(req.params.id);
-        await Workflow.findByIdAndDelete(req.params.id);
-        res.json({ message: 'Workflow deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// ── Ad-hoc Triggers ───────────────────────────────────────────────────────────
 router.post('/trigger/webhook/:workflowId', async (req, res) => {
     try {
         const wf = await Workflow.findById(req.params.workflowId);
@@ -141,41 +32,8 @@ router.post('/trigger/webhook/:workflowId', async (req, res) => {
 });
 
 router.get('/trigger/webhook/:workflowId/info', async (req, res) => {
-    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const baseUrl = (process.env.BASE_URL || "").trim() || `${req.protocol}://${req.get('host')}`;
     res.json({ url: `${baseUrl}/api/trigger/webhook/${req.params.workflowId}`, method: 'POST' });
-});
-
-router.post('/trigger/manual/:workflowId', async (req, res) => {
-    try {
-        const wf = await Workflow.findById(req.params.workflowId);
-        if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-        const result = await runWorkflow(wf.nodes, wf.edges, { source: 'manual', ...req.body }, wf.userId, wf._id.toString(), 'manual');
-        res.json({ success: true, result });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-router.post('/trigger/schedule/:workflowId', async (req, res) => {
-    try {
-        const { interval } = req.body;
-        const wf = await Workflow.findById(req.params.workflowId);
-        if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-
-        const cronExpr = intervalToCron(interval || 3600);
-        registerSchedule(req.params.workflowId, cronExpr, async (ctx) => {
-            await runWorkflow(wf.nodes, wf.edges, ctx.trigger.payload, wf.userId, wf._id.toString(), 'schedule');
-        });
-
-        res.json({ success: true, cronExpression: cronExpr });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-router.delete('/trigger/schedule/:workflowId', (req, res) => {
-    stopSchedule(req.params.workflowId);
-    res.json({ success: true });
 });
 
 router.post('/trigger/form/:workflowId', async (req, res) => {
@@ -192,7 +50,7 @@ router.post('/trigger/form/:workflowId', async (req, res) => {
 router.get('/trigger/form/:workflowId/info', async (req, res) => {
     const wf = await Workflow.findById(req.params.workflowId);
     if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const baseUrl = (process.env.BASE_URL || "").trim() || `${req.protocol}://${req.get('host')}`;
     res.json({ submission_url: `${baseUrl}/api/trigger/form/${req.params.workflowId}`, method: 'POST' });
 });
 
@@ -257,10 +115,12 @@ router.post('/trigger/app-event/:workflowId', async (req, res) => {
         if (!wf) return res.status(404).json({ error: 'Workflow not found' });
 
         const telegramMsg = req.body?.message;
+        console.log(`[TELEGRAM] Received message for WF ${req.params.workflowId}: "${telegramMsg?.text || '(no text)'}"`);
         const payload = { source: 'app_event', raw: req.body, text: telegramMsg?.text, from: telegramMsg?.from, chat_id: telegramMsg?.chat?.id };
         res.json({ ok: true });
 
         (async () => {
+            console.log(`[TELEGRAM] Starting background workflow execution for ${wf.name}...`);
             try {
                 const result = await runWorkflow(wf.nodes, wf.edges, payload, wf.userId, wf._id.toString(), 'app_event');
                 const appTrigger = wf.nodes?.find(n => n.data?.type === 'app_event');
@@ -284,7 +144,8 @@ router.post('/trigger/app-event/:workflowId', async (req, res) => {
 router.post('/trigger/app-event/:workflowId/register-telegram', async (req, res) => {
     try {
         const { telegram_token } = req.body;
-        const webhookUrl = `${process.env.BASE_URL || `${req.protocol}://${req.get('host')}`}/api/trigger/app-event/${req.params.workflowId}`;
+        const baseUrl = (process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).trim();
+        const webhookUrl = `${baseUrl}/api/trigger/app-event/${req.params.workflowId}`;
         const tgRes = await axios.post(`https://api.telegram.org/bot${telegram_token}/setWebhook`, { url: webhookUrl });
         res.json({ success: true, webhookUrl, telegram: tgRes.data });
     } catch (error) { res.status(500).json({ error: error.message }); }
@@ -299,7 +160,145 @@ router.post('/trigger/error/:workflowId', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// ── Protected Routes (Require Auth) ──────────────────────────────────────────
+router.use(requireAuth);
+router.use('/secrets', secretRoutes);
+
+router.post('/ai/generate-workflow', generateWorkflowConfig);
+router.post('/ai/modify-workflow', modifyWorkflowConfig);
+router.post('/ai/explain-error', explainErrorLog);
+router.post('/ai/chat-debug', chatDebug);
+
+router.get('/workflows/:id/runs', async (req, res) => {
+    try {
+        const wf = await Workflow.findById(req.params.id);
+        if (!wf || wf.userId.toString() !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+
+        const runs = await ExecutionLog.find({ workflowId: req.params.id })
+            .sort({ createdAt: -1 })
+            .select('-nodeLogs.input -nodeLogs.result') // Omit heavy payload unless requested
+            .limit(50);
+
+        res.json(runs);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.get('/workflows/:id/runs/:runId', async (req, res) => {
+    try {
+        const wf = await Workflow.findById(req.params.id);
+        if (!wf || wf.userId.toString() !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+
+        const run = await ExecutionLog.findOne({ _id: req.params.runId, workflowId: req.params.id });
+        if (!run) return res.status(404).json({ error: 'Run not found' });
+
+        res.json(run);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.post('/workflows/:id/execute', async (req, res) => {
+    try {
+        const { nodes, edges, payload } = req.body;
+        if (!nodes || !edges) return res.status(400).json({ error: 'Nodes and edges are required' });
+        const result = await runWorkflow(nodes, edges, payload || {}, req.user.id, req.params.id, 'api');
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.get('/workflows', async (req, res) => {
+    try {
+        const workflows = await Workflow.find({ userId: req.user.id }).sort({ createdAt: -1 });
+        res.json(workflows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.post('/workflows', async (req, res) => {
+    try {
+        const { name, nodes, edges } = req.body;
+        const saved = await new Workflow({ name, nodes, edges, userId: req.user.id }).save();
+
+        const scheduleTrigger = nodes?.find(n => n.data?.type === 'schedule_trigger');
+        if (scheduleTrigger && scheduleTrigger.data?.config?.interval) {
+            const cronExpr = intervalToCron(scheduleTrigger.data.config.interval);
+            registerSchedule(saved._id.toString(), cronExpr, async (ctx) => {
+                try {
+                    await runWorkflow(nodes, edges, ctx.trigger.payload, req.user.id, saved._id.toString(), 'schedule');
+                } catch (e) {
+                    console.error(`[SCHEDULER] Workflow ${saved._id} failed:`, e.message);
+                }
+            });
+        }
+
+        const chatTrigger = nodes?.find(n => n.data?.type === 'chat_message');
+        if (chatTrigger) {
+            registerChatTrigger(saved._id.toString(), async (ctx) => {
+                try {
+                    const result = await runWorkflow(nodes, edges, ctx.trigger.payload, req.user.id, saved._id.toString(), 'chat');
+                    const lastOutput = Object.values(result.nodeResults || {}).pop();
+                    const botReply = lastOutput?.response || lastOutput?.output || lastOutput?.result || JSON.stringify(lastOutput);
+                    const reply = botReply || 'Workflow completed.';
+                    addBotMessage(saved._id.toString(), reply);
+                } catch (e) {
+                    addBotMessage(saved._id.toString(), `Error: ${e.message}`);
+                }
+            });
+        }
+
+        const baseUrl = (process.env.BASE_URL || "").trim() || `${req.protocol}://${req.get('host')}`;
+        res.status(201).json({ ...saved.toObject(), baseUrl });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+router.delete('/workflows/:id', async (req, res) => {
+    try {
+        stopSchedule(req.params.id);
+        await Workflow.findByIdAndDelete(req.params.id);
+        res.json({ message: 'Workflow deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.post('/trigger/manual/:workflowId', async (req, res) => {
+    try {
+        const wf = await Workflow.findById(req.params.workflowId);
+        if (!wf) return res.status(404).json({ error: 'Workflow not found' });
+        const result = await runWorkflow(wf.nodes, wf.edges, { source: 'manual', ...req.body }, wf.userId, wf._id.toString(), 'manual');
+        res.json({ success: true, result });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.post('/trigger/schedule/:workflowId', async (req, res) => {
+    try {
+        const { interval } = req.body;
+        const wf = await Workflow.findById(req.params.workflowId);
+        if (!wf) return res.status(404).json({ error: 'Workflow not found' });
+
+        const cronExpr = intervalToCron(interval || 3600);
+        registerSchedule(req.params.workflowId, cronExpr, async (ctx) => {
+            await runWorkflow(wf.nodes, wf.edges, ctx.trigger.payload, wf.userId, wf._id.toString(), 'schedule');
+        });
+
+        res.json({ success: true, cronExpression: cronExpr });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.delete('/trigger/schedule/:workflowId', (req, res) => {
+    stopSchedule(req.params.workflowId);
+    res.json({ success: true });
+});
+
 export default router;
-
-
-

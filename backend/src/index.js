@@ -62,6 +62,7 @@ console.log('--- Flowz Backend Starting ---');
 console.log('Environment:', process.env.NODE_ENV || 'development');
 console.log('Port:', process.env.PORT || 5000);
 console.log('Allowed CORS origins:', allowedOrigins);
+console.log('Base URL:', (process.env.BASE_URL || "").trim() || 'No BASE_URL set (using fallback)');
 
 if (!process.env.MONGODB_URI) {
     console.error('CRITICAL: MONGODB_URI is not defined in environment variables.');

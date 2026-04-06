@@ -23,7 +23,7 @@ const NodeConfigSchema = z.object({
     duration_seconds:  z.number().optional(),
     collection:        z.string().optional(),
     connection_string: z.string().optional(),
-    provider:          z.enum(['google', 'openai']).optional(),
+    provider:          z.enum(['google', 'openai', 'nvidia']).optional(),
     model:             z.string().optional(),
     prompt:            z.string().optional(),
     system_prompt:     z.string().optional(),
@@ -114,34 +114,40 @@ const WORKFLOW_RESPONSE_SCHEMA = {
 };
 
 // ─── Shared system prompt ──────────────────────────────────────────────────────
-const WORKFLOW_SYSTEM_PROMPT = `You are an advanced workflow architect generator like n8n.
-Convert user text into a structured JSON Directed Acyclic Graph (DAG).
+// ─── Shared system prompt ──────────────────────────────────────────────────────
+const WORKFLOW_SYSTEM_PROMPT = `You are an advanced workflow architect generator like n8n or Zapier. 
+Your goal is to convert user requirements into a high-quality, executable Directed Acyclic Graph (DAG) JSON.
 
-Allowed Node Types & Config Schemas:
+Node Type Reference & Schema:
 - webhook_trigger:     { "method": "GET"|"POST" }
 - schedule_trigger:    { "interval": number }  (seconds)
 - manual_trigger:      {}
-- app_event:           { "telegram_token": "string" }
-- form_submission:     { "fields": "string (JSON array)" }
-- chat_message:        { "system_prompt": "string" }
+- app_event:           { "telegram_token": "string", "chat_id": "string" } (Telegram Trigger)
+- form_submission:     {}
+- chat_message:        {} (Chat Widget Trigger)
 - sub_workflow_trigger:{}
 - http_request:        { "url": "string", "method": "GET"|"POST"|"PUT"|"DELETE", "body": "string" }
-- send_email:          { "to": "email", "subject": "string", "smtp_host": "string", "smtp_port": number }
-- delay:               { "duration_seconds": number }
-- save_to_database:    { "collection": "string", "connection_string": "string" }
-- ai_model:            { "provider": "google"|"openai", "model": "string", "prompt": "string", "system_prompt": "string" }
-- ifElse:              { "condition": "javascript_expression" }  (e.g. "payload.age > 18")
+- send_email:          { "to": "email", "subject": "string", "body": "string", "smtp_host": "string", "smtp_port": number, "smtp_user": "string", "smtp_pass": "string" }
+- delay:               { "wait_time": number } (in MILLISECONDS)
+- save_to_database:    { "uri": "string", "collection": "string", "document": "string (JSON)" }
+- ai_model:            { "provider": "google"|"openai"|"nvidia", "model": "string", "prompt": "string", "system_prompt": "string" }
+- ifElse:              { "condition": "javascript_expression" } (evaluates payload or results)
 - log:                 { "message": "string" }
 
-Rules:
-- Every node MUST have: id (string), type (from allowed list above), data: { label, config }
-- Every node SHOULD include position: { x, y } with nodes spaced 200px vertically
-- Edges MUST have: id, source, target, and sourceHandle ("true"|"false") for ifElse connections
-- DAG must be acyclic — no cycles allowed
-- Return ONLY valid JSON matching the schema exactly`;
+Templating & Variables:
+- Access Trigger Data: Use {{input.text}} for Telegram/Chat messages, or {{payload.field}} for webhooks.
+- Access Node Results: Use {{results.NODE_LABEL.output}} or {{results.NODE_ID.output}}.
+- Interpolate strings using double curly braces: "Process {{input.text}} right now".
 
-// ─── MAX_ATTEMPTS constant ─────────────────────────────────────────────────────
-const MAX_ATTEMPTS = 3;
+Graph Rules:
+1. Every node MUST have: id (unique string), type (from list), data: { label: "Human Readable Name", config: { ... } }, position: { x, y }
+2. Spacing: Separate nodes by 260px horizontally (x) and 150px vertically (y) to look professional.
+3. Edges: Connect nodes from source to target. For ifElse, use sourceHandle: "true" or "false".
+4. Acyclic: NO cycles.
+5. Return ONLY a single JSON object. No markdown, no commentary.`;
+
+
+const MAX_ATTEMPTS = 2;
 
 // ─── Gemini self-correcting generation helper ──────────────────────────────────
 const selfCorrectingGenerate = async (modelName, userPrompt, previousAttempt = null) => {
@@ -242,15 +248,36 @@ export const generateWorkflowConfig = async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
+    // Faster models prioritized
     const modelsToTry = [
-        'gemini-2.5-flash',
+        'gemini-2.0-flash-lite',
         'gemini-2.0-flash',
-        'gemini-2.0-flash-lite'
+        'gemini-2.5-flash'
     ];
 
-    // ── Gemini cascade ────────────────────────────────────────────────────────
+    // Parallelize the primary attempt for maximum speed
+    const fastModels = ['gemini-2.0-flash-lite', 'gemini-2.0-flash'];
+    console.log(`[AI] Racing models: ${fastModels.join(', ')}`);
+    
+    try {
+        const result = await Promise.any(
+            fastModels.map(model => selfCorrectingGenerate(model, prompt))
+        ).then(res => {
+            if (res.success) return res;
+            throw new Error('Initial generation failed');
+        });
+
+        if (result.success) {
+            console.log(`[AI] ✓ Parallel race winner: ${result.data?.nodes?.length} nodes`);
+            return res.json(result.data);
+        }
+    } catch (e) {
+        console.warn('[AI] Parallel attempts failed or timed out. Falling back to serial cascade.', e.message);
+    }
+
+    // ── Gemini cascade (Fallback) ─────────────────────────────────────────────
     for (const modelName of modelsToTry) {
-        console.log(`[AI] Attempting generation with ${modelName}…`);
+        console.log(`[AI] Attempting fallback generation with ${modelName}…`);
         let lastAttempt = null;
 
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -279,7 +306,6 @@ export const generateWorkflowConfig = async (req, res) => {
                 };
             }
         }
-
         console.warn(`[AI] ${modelName} exhausted all ${MAX_ATTEMPTS} correction attempts.`);
     }
 
@@ -337,7 +363,7 @@ export const modifyWorkflowConfig = async (req, res) => {
     const { currentWorkflow, prompt, selectedNodeId } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt is required' });
 
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+    const modelsToTry = ['gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-2.5-flash'];
 
     const modifySystemPrompt = `You are a professional workflow architect.
 Modify the provided workflow (nodes and edges) based on the user's instructions.
