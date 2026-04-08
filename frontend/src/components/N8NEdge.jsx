@@ -1,5 +1,5 @@
 import React from 'react';
-import { getBezierPath, BaseEdge, EdgeLabelRenderer } from '@xyflow/react';
+import { getSmoothStepPath, BaseEdge } from '@xyflow/react';
 
 export default function N8NEdge({
     id,
@@ -15,21 +15,22 @@ export default function N8NEdge({
     animated,
     data
 }) {
-    const [edgePath, labelX, labelY] = getBezierPath({
+    const [edgePath] = getSmoothStepPath({
         sourceX,
         sourceY,
         sourcePosition,
         targetX,
         targetY,
         targetPosition,
+        borderRadius: 20,
     });
 
     const edgeStyle = {
         ...style,
-        strokeWidth: selected ? 4 : 3,
-        stroke: selected ? '#3b82f6' : '#475569',
-        transition: 'stroke 0.2s, stroke-width 0.2s',
-        filter: selected ? 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.5))' : 'none',
+        strokeWidth: selected ? 3 : 2,
+        stroke: selected ? '#60a5fa' : '#334155',
+        transition: 'all 0.3s ease',
+        filter: selected ? 'drop-shadow(0 0 12px rgba(96, 165, 250, 0.4))' : 'none',
     };
 
     return (

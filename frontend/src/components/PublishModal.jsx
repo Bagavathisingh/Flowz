@@ -121,12 +121,19 @@ export default function PublishModal({ isOpen, onClose, nodes, edges, triggerNod
 
         try {
             let wf;
+            const currentOrigin = window.location.origin;
+            const fallbackBaseUrl = currentOrigin.includes('localhost') ? 'http://localhost:5000' : currentOrigin;
+            
             if (isAlreadySaved) {
-                // Skip POST, just retrieve what the ID is (we use the passed ID)
-                // But we should ideally ensure it's up-to-date. For now, following user's 'no need to save' request strictly.
-                wf = { _id: workflowId, name: workflowName, baseUrl: API_URL.replace('/api', '') };
+                // ── Auto-Update Existing Workflow ──
+                const updateRes = await axios.put(`${API_URL}/workflows/${workflowId}`, {
+                    name: workflowName,
+                    nodes,
+                    edges,
+                });
+                wf = updateRes.data;
             } else {
-                // 1. Save workflow to get a permanent ID
+                // 1. Save NEW workflow
                 const saveRes = await axios.post(`${API_URL}/workflows`, {
                     name: workflowName,
                     nodes,
@@ -138,8 +145,9 @@ export default function PublishModal({ isOpen, onClose, nodes, edges, triggerNod
             setSavedWorkflow(wf);
 
             const finalWorkflowId = wf._id;
-            const baseUrl = wf.baseUrl || API_URL.replace('/api', '');
-            let result = { workflowId: finalWorkflowId, baseUrl };
+            // Prioritize: 1. API URL env, 2. Backend response, 3. Current browser origin
+            const baseUrl = import.meta.env.VITE_PUBLIC_URL || wf.baseUrl || fallbackBaseUrl;
+            let result = { workflowId: finalWorkflowId, baseUrl: baseUrl.replace(/\/$/, '') };
 
             // 2. Trigger-specific activation
             if (triggerType === 'app_event' && triggerConfig.telegram_token) {

@@ -1,7 +1,7 @@
 import {
     Globe, Zap, Mail, Database, Clock, Sparkles, X, Plus,
     MousePointer2, Radio, Webhook, FileEdit, ArrowRightToLine, MessageSquare, Folder, Play,
-    MessageCircle, AlertCircle, Bot, Loader2, Send, Check
+    MessageCircle, AlertCircle, Bot, Loader2, Send, Check, UserPlus, LogIn
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 
@@ -106,7 +106,12 @@ export default function Sidebar({
                                 {[
                                     { type: 'http_request', label: 'HTTP Request', icon: Globe, color: 'text-emerald-400', bg: 'bg-emerald-500/10', hbg: 'hover:bg-emerald-500' },
                                     { type: 'send_email', label: 'Send Email', icon: Mail, color: 'text-amber-400', bg: 'bg-amber-500/10', hbg: 'hover:bg-amber-500' },
-                                    { type: 'save_to_database', label: 'Save to DB', icon: Database, color: 'text-cyan-400', bg: 'bg-cyan-500/10', hbg: 'hover:bg-cyan-500' },
+                                    { type: 'mongodb', label: 'MongoDB', icon: Database, color: 'text-green-400', bg: 'bg-green-500/10', hbg: 'hover:bg-green-500' },
+                                    { type: 'postgresql', label: 'PostgreSQL', icon: Database, color: 'text-blue-400', bg: 'bg-blue-500/10', hbg: 'hover:bg-blue-500' },
+                                    { type: 'mysql', label: 'MySQL', icon: Database, color: 'text-cyan-400', bg: 'bg-cyan-500/10', hbg: 'hover:bg-cyan-500' },
+                                    { type: 'save_to_database', label: 'Database (Other)', icon: Database, color: 'text-slate-400', bg: 'bg-slate-500/10', hbg: 'hover:bg-slate-500' },
+                                    { type: 'user_registration', label: 'User Registration', icon: UserPlus, color: 'text-blue-400', bg: 'bg-blue-500/10', hbg: 'hover:bg-blue-500' },
+                                    { type: 'user_login', label: 'User Login', icon: LogIn, color: 'text-indigo-400', bg: 'bg-indigo-500/10', hbg: 'hover:bg-indigo-500' },
                                     { type: 'ai_model', label: 'AI Agent', icon: Sparkles, color: 'text-purple-400', bg: 'bg-purple-500/10', hbg: 'hover:bg-purple-500' },
                                     { type: 'delay', label: 'Delay', icon: Clock, color: 'text-rose-400', bg: 'bg-rose-500/10', hbg: 'hover:bg-rose-500' },
                                     { type: 'ifElse', label: 'If / Else', icon: Zap, color: 'text-orange-400', bg: 'bg-orange-500/10', hbg: 'hover:bg-orange-500' },
@@ -144,22 +149,26 @@ export default function Sidebar({
                                     <div key={i} className={`flex flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                                         <div className={`max-w-[85%] p-4 rounded-2xl text-[0.82rem] leading-relaxed ${msg.role === 'user'
                                             ? 'bg-blue-600 text-white rounded-tr-none'
-                                            : 'bg-slate-900 border border-white/10 text-slate-300 rounded-tl-none'
+                                            : msg.isUserError 
+                                                ? 'bg-amber-500/10 border border-amber-500/20 text-amber-200 rounded-tl-none'
+                                                : 'bg-slate-900 border border-white/10 text-slate-300 rounded-tl-none'
                                             }`}>
                                             {msg.role === 'assistant' && (
-                                                <div className="flex items-center gap-2 mb-2 text-purple-400 font-bold uppercase tracking-tighter text-[0.65rem]">
-                                                    <Sparkles size={12} /> AI Debugger
+                                                <div className={`flex items-center gap-2 mb-2 ${msg.isUserError ? 'text-amber-400' : 'text-purple-400'} font-bold uppercase tracking-tighter text-[0.65rem]`}>
+                                                    <Sparkles size={12} /> {msg.isUserError ? 'Setup Inspector' : 'AI Debugger'}
                                                 </div>
                                             )}
 
-                                            {msg.text}
+                                            <div className="whitespace-pre-wrap font-medium">
+                                                {msg.text}
+                                            </div>
 
-                                            {msg.suggestedFix && (
+                                            {msg.suggestedFix && !msg.isUserError && (
                                                 <div className="mt-4 p-3 rounded-xl bg-purple-500/5 border border-purple-500/10 flex flex-col gap-3">
                                                     <div className="flex items-center gap-2 text-purple-400 font-bold text-[0.7rem] uppercase">
-                                                        <AlertCircle size={14} /> Suggested Action
+                                                        <AlertCircle size={14} /> Structural Fix Available
                                                     </div>
-                                                    <p className="text-[0.75rem] text-slate-400 m-0 italic">"I have generated an updated workflow configuration that should resolve the issue."</p>
+                                                    <p className="text-[0.75rem] text-slate-400 m-0 italic">"I can automatically repair the workflow structure to resolve this."</p>
                                                     <button
                                                         onClick={() => onApplyFix(msg.suggestedFix)}
                                                         className="w-full bg-purple-500 hover:bg-purple-400 text-white py-2.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-purple-500/20 border-none cursor-pointer flex items-center justify-center gap-2"

@@ -2,7 +2,7 @@ import { Handle, Position } from '@xyflow/react';
 import {
     Globe, Mail, Database, Clock, Sparkles, MousePointer2, Radio,
     FileEdit, ArrowRightToLine, MessageSquare, Folder, Zap, Activity,
-    CheckCircle2, XCircle, Loader2, GitBranch
+    CheckCircle2, XCircle, Loader2, GitBranch, UserPlus, LogIn
 } from 'lucide-react';
 
 // ── Category system → border color + glow ─────────────────────────────────────
@@ -27,8 +27,13 @@ const NODE_META = {
     send_email:         { cat: 'action',  icon: Mail,               label: 'Email',         color: '#a78bfa' },
     ai_model:           { cat: 'ai',      icon: Sparkles,           label: 'AI Model',      color: '#fbbf24' },
     save_to_database:   { cat: 'data',    icon: Database,           label: 'Database',      color: '#818cf8' },
+    mongodb:            { cat: 'data',    icon: Database,           label: 'MongoDB',       color: '#818cf8' },
+    postgresql:         { cat: 'data',    icon: Database,           label: 'PostgreSQL',    color: '#336791' },
+    mysql:              { cat: 'data',    icon: Database,           label: 'MySQL',         color: '#00758f' },
     delay:              { cat: 'logic',   icon: Clock,              label: 'Delay',         color: '#34d399' },
     ifElse:             { cat: 'logic',   icon: GitBranch,          label: 'Condition',     color: '#34d399' },
+    user_registration:  { cat: 'action',  icon: UserPlus,          label: 'Register',      color: '#a78bfa' },
+    user_login:         { cat: 'action',  icon: LogIn,             label: 'Login',         color: '#a78bfa' },
     log:                { cat: 'data',    icon: FileEdit,           label: 'Log',           color: '#818cf8' },
 };
 

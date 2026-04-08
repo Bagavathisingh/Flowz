@@ -4,6 +4,10 @@ import mongoose from 'mongoose';
 import { MongoClient } from 'mongodb';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import pg from 'pg';
+import mysql from 'mysql2/promise';
 import Secret from '../models/Secret.js';
 import { decrypt } from '../services/crypto.js';
 import ExecutionLog from '../models/ExecutionLog.js';
@@ -49,6 +53,37 @@ const getExternalDb = async (connectionString) => {
     return client;
 };
 
+const sqlPools = new Map();
+const getSqlPool = async (type, config) => {
+    const key = `${type}:${config.host}:${config.port}:${config.database}:${config.user}`;
+    if (sqlPools.has(key)) return sqlPools.get(key);
+
+    let pool;
+    if (type === 'postgresql') {
+        const { Pool } = pg;
+        pool = new Pool({
+            host: config.host,
+            port: config.port,
+            user: config.user,
+            password: config.password,
+            database: config.database,
+            ssl: config.host?.includes('aiven') || config.host?.includes('render') || config.host?.includes('elephantsql') ? { rejectUnauthorized: false } : false
+        });
+    } else {
+        pool = await mysql.createPool({
+            host: config.host,
+            port: config.port,
+            user: config.user,
+            password: config.password,
+            database: config.database,
+            waitForConnections: true,
+            connectionLimit: 10
+        });
+    }
+    sqlPools.set(key, pool);
+    return pool;
+};
+
 // ─── Single-node executor ──────────────────────────────────────────────────────
 export const executeAction = async (action, context) => {
     console.log(`[ENGINE] Executing Node: ${action.label || action.id} (${action.type})`);
@@ -62,20 +97,37 @@ export const executeAction = async (action, context) => {
         }
         let resolved = str.replace(/\{\{\s*([\w\.\_ ]+?)\s*\}\}/g, (match, path) => {
             let current = context;
-            if (path === 'payload' || path === 'input') return JSON.stringify(context.trigger?.payload || {});
-            if (path === 'results') return JSON.stringify(context.results || {});
-            let keys = path.trim().split('.');
-            if (keys[0] === 'payload' || keys[0] === 'input') {
+            const cleanPath = path.trim();
+            if (cleanPath === 'payload' || cleanPath === 'input') return JSON.stringify(context.trigger?.payload || {});
+            if (cleanPath === 'results') return JSON.stringify(context.results || {});
+
+            let keys = cleanPath.split('.');
+            // Smart Mapping: Handle 'results.[trigger_id]' or 'payload.[trigger_id]' or 'input.[trigger_id]'
+            const isTriggerRef = (keys[0] === 'results' || keys[0] === 'payload' || keys[0] === 'input') && keys[1] && !context.results[keys[1]];
+
+            if (isTriggerRef) {
+                // If they used payload.node_1.email, skip 'node_1' and go to payload.email
+                const triggerSubPath = (context.trigger?.payload?.form_data) ? ['form_data', ...keys.slice(2)] : keys.slice(2);
+                keys = ['trigger', 'payload', ...triggerSubPath];
+            } else if (keys[0] === 'payload' || keys[0] === 'input') {
                 keys = ['trigger', 'payload', ...keys.slice(1)];
             } else if (keys[0] !== 'results') {
                 if (context.results?.[keys[0]]) keys = ['results', ...keys];
                 else if (context.trigger?.payload?.[keys[0]]) keys = ['trigger', 'payload', ...keys];
             }
-            for (const k of keys) {
+
+            for (let k of keys) {
                 if (current == null) { current = ''; break; }
+                // Handle both underscore and space (e.g. form_data and 'form data')
                 current = current[k] !== undefined ? current[k] : current[k.replace(/_/g, ' ')];
             }
-            if (typeof current === 'object' && current !== null && current.output !== undefined) current = current.output;
+
+            // Auto-unwrap '.output' or '.text' if it's the final value (useful for AI nodes)
+            if (typeof current === 'object' && current !== null) {
+                if (current.output !== undefined) current = current.output;
+                else if (current.text !== undefined) current = current.text;
+            }
+
             if (current == null || current === '') return '';
             return typeof current === 'object' ? JSON.stringify(current) : String(current);
         });
@@ -119,9 +171,9 @@ export const executeAction = async (action, context) => {
             return { status: 'triggered', trigger_type: 'custom', timestamp: new Date().toISOString(), input: context.trigger.payload || {} };
 
         case 'http_request': {
-            const url    = action.config?.url || 'https://jsonplaceholder.typicode.com/posts/1';
+            const url = action.config?.url || 'https://jsonplaceholder.typicode.com/posts/1';
             const method = action.config?.method || 'GET';
-            const body   = action.config?.body || action.config?.data || (method !== 'GET' ? context.trigger.payload : undefined);
+            const body = action.config?.body || action.config?.data || (method !== 'GET' ? context.trigger.payload : undefined);
             try {
                 const response = await axios({ method, url, data: body, timeout: 10000 });
                 return { statusCode: response.status, data: response.data, headers: response.headers };
@@ -129,25 +181,25 @@ export const executeAction = async (action, context) => {
         }
 
         case 'ai_model': {
-            const provider  = action.config?.provider || 'google';
-            const apiKey    = action.config?.api_key || (
+            const provider = action.config?.provider || 'google';
+            const apiKey = action.config?.api_key || (
                 provider === 'google' ? (process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY) :
-                provider === 'nvidia' ? process.env.NVIDIA_API_KEY :
-                process.env.OPENAI_API_KEY
+                    provider === 'nvidia' ? process.env.NVIDIA_API_KEY_DEBUG :
+                        process.env.OPENAI_API_KEY
             );
             const modelName = action.config?.model || (
-                provider === 'google' ? 'gemini-2.0-flash' : 
-                provider === 'nvidia' ? 'meta/llama-3.1-405b-instruct' : 'gpt-4o'
+                provider === 'google' ? 'gemini-2.0-flash' :
+                    provider === 'nvidia' ? 'meta/llama-3.1-405b-instruct' : 'gpt-4o'
             );
-            const finalPrompt  = action.config?.prompt || action.config?.user_prompt || '';
+            const finalPrompt = action.config?.prompt || action.config?.user_prompt || '';
             const systemPrompt = action.config?.system_prompt || '';
-            
+
             if (!apiKey) throw new Error(`API Key for ${provider} is missing.`);
 
             try {
                 if (provider === 'google') {
-                    const genAI  = new GoogleGenerativeAI(apiKey);
-                    const model  = genAI.getGenerativeModel({ model: modelName, systemInstruction: systemPrompt });
+                    const genAI = new GoogleGenerativeAI(apiKey);
+                    const model = genAI.getGenerativeModel({ model: modelName, systemInstruction: systemPrompt });
                     const result = await model.generateContent(finalPrompt);
                     return { provider: 'Google Gemini', model: modelName, output: result.response.text() };
                 } else if (provider === 'nvidia') {
@@ -159,7 +211,7 @@ export const executeAction = async (action, context) => {
                     return { provider: 'NVIDIA', model: modelName, output: completion.choices[0].message.content };
                 } else {
                     const openai = new OpenAI({ apiKey });
-                    const msgs   = [];
+                    const msgs = [];
                     if (systemPrompt) msgs.push({ role: 'system', content: systemPrompt });
                     msgs.push({ role: 'user', content: finalPrompt });
                     const completion = await openai.chat.completions.create({ model: modelName, messages: msgs, timeout: 10000 });
@@ -169,11 +221,17 @@ export const executeAction = async (action, context) => {
         }
 
         case 'send_email': {
-            const smtpUser     = action.config?.smtp_user;
-            const smtpHost     = action.config?.smtp_host || (smtpUser ? 'smtp.gmail.com' : null);
-            const smtpPort     = parseInt(action.config?.smtp_port) || 587;
-            const smtpPass     = action.config?.smtp_pass;
-            const useRealSmtp  = !!(smtpHost && smtpUser && smtpPass);
+            const getConf = async (key) => {
+                if (action.config?.[key]) return action.config[key];
+                return await decryptSecret(key.toUpperCase(), context.userId);
+            };
+
+            const smtpUser = await getConf('smtp_user') || process.env.SMTP_USER;
+            const smtpHost = await getConf('smtp_host') || process.env.SMTP_HOST || (smtpUser ? 'smtp.gmail.com' : null);
+            const smtpPort = parseInt(await getConf('smtp_port')) || parseInt(process.env.SMTP_PORT) || 587;
+            const smtpPass = await getConf('smtp_pass') || process.env.SMTP_PASS;
+
+            const useRealSmtp = !!(smtpHost && smtpUser && smtpPass);
             const transportKey = useRealSmtp ? `${smtpHost}:${smtpUser}` : 'ethereal';
             let activeTransporter;
             if (useRealSmtp) {
@@ -192,13 +250,13 @@ export const executeAction = async (action, context) => {
                 activeTransporter = transporter;
             }
             const fromEmail = smtpUser || 'noreply@ethereal.email';
-            const toEmail   = (action.config?.to || '').trim() || 'test@example.com';
+            const toEmail = (action.config?.to || '').trim() || 'test@example.com';
             const resultIds = Object.keys(context.results);
             const lastOutput = context.results[resultIds[resultIds.length - 1]]?.output
-                             || context.results[resultIds[resultIds.length - 1]];
+                || context.results[resultIds[resultIds.length - 1]];
             const info = await activeTransporter.sendMail({
                 from: `"Flowz" <${fromEmail}>`,
-                to:   toEmail,
+                to: toEmail,
                 subject: action.config?.subject || 'Hello from Flowz',
                 text: `Execution result: ${typeof lastOutput === 'string' ? lastOutput : JSON.stringify(lastOutput)}`,
                 html: `<div style="font-family:sans-serif;padding:20px;border:1px solid #4F46E5;border-radius:12px;max-width:600px;margin:auto">
@@ -222,7 +280,7 @@ export const executeAction = async (action, context) => {
 
         case 'save_to_database': {
             const collectionName = (action.config?.collection || 'workflow_results').trim();
-            const connString     = action.config?.connection_string;
+            const connString = action.config?.connection_string || action.config?.uri;
             try {
                 const db = connString ? (await getExternalDb(connString)).db() : mongoose.connection.db;
                 const storageType = connString ? 'External MongoDB' : 'System Default MongoDB';
@@ -234,6 +292,49 @@ export const executeAction = async (action, context) => {
                 });
                 return { storage: storageType, collection: collectionName, insertedId: result.insertedId, status: 'success' };
             } catch (err) { throw new Error(`Database Error (${action.config?.collection}): ${err.message}`); }
+        }
+
+        case 'mongodb': {
+            const { uri, database, collection, operation, document } = action.config;
+            if (!uri || !collection) throw new Error('MongoDB requires URI and Collection.');
+            try {
+                const client = await getExternalDb(uri);
+                const db = client.db(database);
+                const col = db.collection(collection);
+                let result;
+                
+                const data = typeof document === 'string' ? JSON.parse(document) : document;
+
+                if (operation === 'find') {
+                    result = await col.find(data).limit(100).toArray();
+                } else if (operation === 'update') {
+                    const { filter, update } = data;
+                    result = await col.updateOne(filter || {}, update || { $set: data });
+                } else {
+                    result = await col.insertOne(data);
+                }
+                return { success: true, operation, result };
+            } catch (err) { throw new Error(`MongoDB Error: ${err.message}`); }
+        }
+
+        case 'postgresql': {
+            const { host, query } = action.config;
+            if (!host || !query) throw new Error('PostgreSQL requires Host and Query.');
+            try {
+                const pool = await getSqlPool('postgresql', action.config);
+                const response = await pool.query(query);
+                return { success: true, rows: response.rows, rowCount: response.rowCount };
+            } catch (err) { throw new Error(`PostgreSQL Error: ${err.message}`); }
+        }
+
+        case 'mysql': {
+            const { host, query } = action.config;
+            if (!host || !query) throw new Error('MySQL requires Host and Query.');
+            try {
+                const pool = await getSqlPool('mysql', action.config);
+                const [rows, fields] = await pool.execute(query);
+                return { success: true, rows, rowCount: rows.length };
+            } catch (err) { throw new Error(`MySQL Error: ${err.message}`); }
         }
 
         case 'ifElse': {
@@ -250,6 +351,91 @@ export const executeAction = async (action, context) => {
             const msg = action.config?.message || 'Standard Execution Log';
             console.log(`[USER LOG]: ${msg}`);
             return { logged: true, message: msg };
+        }
+
+        case 'user_registration': {
+            let email = (action.config?.email || '').toLowerCase().trim();
+            let password = action.config?.password || '';
+            const collectionName = (action.config?.collection || 'app_users').trim();
+            const connString = action.config?.uri;
+            const extraParams = action.config?.parameters || [];
+
+            // Smart Fallback: If blank, look for 'email' and 'password' in trigger payload
+            if (!email) email = (context.trigger?.payload?.email || context.trigger?.payload?.form_data?.email || '').toLowerCase().trim();
+            if (!password) password = context.trigger?.payload?.password || context.trigger?.payload?.form_data?.password || '';
+
+            if (!email || !password) throw new Error('Email and password are required. Ensure your trigger payload contains "email" and "password" or map them manually.');
+            if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+
+            try {
+                const db = connString ? (await getExternalDb(connString)).db() : mongoose.connection.db;
+                const existing = await db.collection(collectionName).findOne({ email });
+                if (existing) throw new Error('A user with this email already exists.');
+
+                // Process extra parameters with type casting
+                const additionalData = {};
+                for (const p of extraParams) {
+                    if (!p.name) continue;
+                    let val = p.value;
+                    const isDateType = ['date', 'time', 'datetime'].includes(p.type);
+
+                    // Live auto-fill: if blank and date-type, use current time
+                    if ((val === '' || val == null) && isDateType) {
+                        val = new Date();
+                    } else if (p.type === 'number') {
+                        val = Number(val);
+                    } else if (p.type === 'boolean') {
+                        val = val === 'true' || val === true;
+                    } else if (isDateType) {
+                        val = new Date(val);
+                    }
+                    additionalData[p.name] = val;
+                }
+
+                const passwordHash = await bcrypt.hash(password, 12);
+                const result = await db.collection(collectionName).insertOne({
+                    email,
+                    passwordHash,
+                    ...additionalData,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                });
+
+                return { success: true, userId: result.insertedId, email, message: 'User registered successfully', storage: connString ? 'External DB' : 'System DB' };
+            } catch (err) { throw new Error(`Registration Error: ${err.message}`); }
+        }
+
+        case 'user_login': {
+            let email = (action.config?.email || '').toLowerCase().trim();
+            let password = action.config?.password || '';
+            const collectionName = (action.config?.collection || 'app_users').trim();
+            const connString = action.config?.uri;
+
+            // Smart Fallback
+            if (!email) email = (context.trigger?.payload?.email || context.trigger?.payload?.form_data?.email || '').toLowerCase().trim();
+            if (!password) password = context.trigger?.payload?.password || context.trigger?.payload?.form_data?.password || '';
+
+            if (!email || !password) throw new Error('Email and password are required for login.');
+
+            try {
+                const db = connString ? (await getExternalDb(connString)).db() : mongoose.connection.db;
+                const user = await db.collection(collectionName).findOne({ email });
+
+                if (!user) throw new Error('Invalid email or password');
+
+                const isValid = await bcrypt.compare(password, user.passwordHash);
+                if (!isValid) throw new Error('Invalid email or password');
+
+                const token = jwt.sign(
+                    { id: user._id.toString(), email: user.email },
+                    process.env.JWT_SECRET || 'fallback_secret_for_workflow_apps',
+                    { expiresIn: '7d' }
+                );
+
+                // Exclude sensitive data from output
+                const { passwordHash, ...safeUser } = user;
+                return { success: true, token, user: safeUser, message: 'Login successful', storage: connString ? 'External DB' : 'System DB' };
+            } catch (err) { throw new Error(`Login Error: ${err.message}`); }
         }
 
         default:
@@ -290,12 +476,12 @@ export const runWorkflow = async (
     const nodeLogs = [];
 
     // ── 1. Build DAG structures ─────────────────────────────────────────────
-    const nodeMap   = new Map(nodes.map(n => [n.id, n]));
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
     // pending[id] = number of incoming edges not yet satisfied
-    const pending   = new Map(nodes.map(n => [n.id, 0]));
+    const pending = new Map(nodes.map(n => [n.id, 0]));
     // children[id] = [{ target, handle }]
-    const children  = new Map(nodes.map(n => [n.id, []]));
+    const children = new Map(nodes.map(n => [n.id, []]));
 
     for (const edge of edges) {
         pending.set(edge.target, (pending.get(edge.target) || 0) + 1);
@@ -330,7 +516,7 @@ export const runWorkflow = async (
     // ── 4. Helpers ──────────────────────────────────────────────────────────
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const executed = new Set();
-    const skipped  = new Set();
+    const skipped = new Set();
 
     // Recursively mark a node and all its downstream as skipped (dead ifElse branch)
     const propagateSkip = (nodeId) => {
@@ -343,25 +529,25 @@ export const runWorkflow = async (
     // Execute a single node with retry/backoff, returns { status, result, log }
     const runNode = async (currentNode) => {
         executed.add(currentNode.id);
-        const nodeLabel    = currentNode.data?.label || currentNode.id;
-        const startTime    = Date.now();
-        const actionData   = {
-            id:     currentNode.id,
-            type:   currentNode.data.type,
-            label:  currentNode.data.label,
+        const nodeLabel = currentNode.data?.label || currentNode.id;
+        const startTime = Date.now();
+        const actionData = {
+            id: currentNode.id,
+            type: currentNode.data.type,
+            label: currentNode.data.label,
             config: { ...(currentNode.data.config || {}) }
         };
         const inputSnapshot = {
-            trigger_payload:  context.trigger.payload,
+            trigger_payload: context.trigger.payload,
             previous_results: { ...context.results }  // snapshot before this wave
         };
 
-        const onError    = actionData.config?.on_error    || 'stop';
-        const maxRetries = Math.max(0, parseInt(actionData.config?.retry_count)    || 0);
-        const baseDelay  = Math.max(500, parseInt(actionData.config?.retry_delay_ms) || 1000);
+        const onError = actionData.config?.on_error || 'stop';
+        const maxRetries = Math.max(0, parseInt(actionData.config?.retry_count) || 0);
+        const baseDelay = Math.max(500, parseInt(actionData.config?.retry_delay_ms) || 1000);
 
         let nodeResult = null;
-        let lastError  = null;
+        let lastError = null;
 
         if (io && workflowId) {
             io.to(`workflow_${workflowId}`).emit('node:start', { nodeId: currentNode.id, label: nodeLabel, type: currentNode.data.type });
@@ -388,12 +574,12 @@ export const runWorkflow = async (
         if (nodeResult === null) {
             // All attempts exhausted
             const log = {
-                nodeId:    currentNode.id,
+                nodeId: currentNode.id,
                 nodeLabel,
-                nodeType:  currentNode.data.type,
-                status:    'failure',
-                error:     lastError.message,
-                retries:   maxRetries,
+                nodeType: currentNode.data.type,
+                status: 'failure',
+                error: lastError.message,
+                retries: maxRetries,
                 duration
             };
             if (onError === 'stop') {
@@ -408,25 +594,25 @@ export const runWorkflow = async (
         }
 
         nodeLogs.push({
-            nodeId:    currentNode.id,
+            nodeId: currentNode.id,
             nodeLabel,
-            nodeType:  currentNode.data.type,
-            status:    'success',
-            input:     inputSnapshot,
-            result:    nodeResult,
-            retries:   maxRetries,
+            nodeType: currentNode.data.type,
+            status: 'success',
+            input: inputSnapshot,
+            result: nodeResult,
+            retries: maxRetries,
             duration
         });
-        
+
         if (io && workflowId) io.to(`workflow_${workflowId}`).emit('node:complete', { nodeId: currentNode.id, duration, result: nodeResult });
-        
+
         return { node: currentNode, status: 'ok', result: nodeResult };
     };
 
     // ── 5. Parallel wave-by-wave DAG execution ──────────────────────────────
     let overallStatus = 'success';
-    let overallError  = null;
-    let waveNum       = 0;
+    let overallError = null;
+    let waveNum = 0;
 
     while (ready.length > 0) {
         // Filter out any nodes already executed or skipped (deduplication safety)
@@ -443,7 +629,7 @@ export const runWorkflow = async (
         const fatal = waveResults.find(r => r.status === 'fatal');
         if (fatal) {
             overallStatus = 'failure';
-            overallError  = `Node "${fatal.node.data?.label || fatal.node.id}" failed: ${fatal.error}`;
+            overallError = `Node "${fatal.node.data?.label || fatal.node.id}" failed: ${fatal.error}`;
             console.error(`[ENGINE] ✗ Fatal: ${overallError}`);
             break;
         }
@@ -489,7 +675,7 @@ export const runWorkflow = async (
         ready = nextReady;
     }
 
-    const duration    = Date.now() - workflowStart;
+    const duration = Date.now() - workflowStart;
     const finalResult = {
         status: overallStatus,
         nodeLogs,
@@ -504,7 +690,7 @@ export const runWorkflow = async (
     if (logDoc) {
         try {
             await ExecutionLog.findByIdAndUpdate(logDoc._id, {
-                status:   overallStatus,
+                status: overallStatus,
                 nodeLogs: nodeLogs,
                 duration,
                 ...(overallError ? { error: overallError } : {})

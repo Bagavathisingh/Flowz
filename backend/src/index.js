@@ -28,18 +28,27 @@ const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
     .split(',')
     .map(o => o.trim());
 
-app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin)) return callback(null, true);
-        console.warn(`[CORS] Blocked request from unauthorized origin: ${origin}`);
-        callback(new Error(`CORS policy: origin ${origin} is not allowed`));
-    },
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
-}));
+app.use((req, res, next) => {
+    // ── Public Triggers are ALWAYS open ─────────────────────────────────────────
+    if (req.path.startsWith('/api/trigger/')) {
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        if (req.method === 'OPTIONS') return res.sendStatus(200);
+        return next();
+    }
+
+    cors({
+        origin: (origin, callback) => {
+            if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+            console.warn(`[CORS] Blocked restricted request from: ${origin}`);
+            callback(new Error(`CORS policy: origin ${origin} is not allowed`));
+        },
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        credentials: true
+    })(req, res, next);
+});
 
 app.use(express.json({ limit: '2mb' }));
 

@@ -320,6 +320,7 @@ const BuilderCanvas = () => {
           id: e.id,
           source: e.source,
           target: e.target,
+          type: 'n8n',
           sourceHandle: safeSourceHandle || undefined
         });
       });
@@ -355,7 +356,8 @@ const BuilderCanvas = () => {
           generatedEdges.push({
             id: `edge_${index}`,
             source: index === 0 ? 'trigger_1' : `action_${index}`,
-            target: nid
+            target: nid,
+            type: 'n8n'
           });
           yOffset += 150;
         });
@@ -461,14 +463,17 @@ const BuilderCanvas = () => {
             currentWorkflow: { nodes, edges }
           });
 
-          const { explanation, cause, fix, suggestedFixWorkflow } = debugRes.data;
+          const { classification, explanation, cause, fix, suggestedFixWorkflow } = debugRes.data;
 
           setDebugMessages(prev => [
             ...prev,
             {
               role: 'assistant',
-              text: `Explanation: ${explanation}\n\nCause: ${cause}\n\nFix: ${fix}`,
+              text: classification === 'USER_SIDE_ERROR' 
+                ? `**User Configuration Needed**\n\n${explanation}\n\n**Potential Cause:** ${cause}\n\n**To Fix:** ${fix}`
+                : `**Structural Logic Issue**\n\n${explanation}\n\n**Cause:** ${cause}\n\n**Correction:** ${fix}`,
               suggestedFix: suggestedFixWorkflow,
+              isUserError: classification === 'USER_SIDE_ERROR',
               isNew: true
             }
           ]);
@@ -586,6 +591,16 @@ const BuilderCanvas = () => {
     }
   };
 
+  const handleDebugNode = (node) => {
+    setIsSidebarOpen(true);
+    setSidebarMode('chat');
+    setDebugMessages(prev => [...prev, { 
+      role: 'assistant', 
+      text: `🔍 I'm focusing on node "${node.data.label || node.id}". I'll check its configuration for potential issues. What part would you like me to look at?`,
+      focusedNode: node.id 
+    }]);
+  };
+
   const closeWorkflow = (id) => {
     const remaining = openWorkflows.filter(wf => (wf._id || wf.id) !== id);
     setOpenWorkflows(remaining);
@@ -676,18 +691,28 @@ const BuilderCanvas = () => {
     if (!workflowName) return;
     setIsSaving(true);
     try {
-      await axios.post(`${API_URL}/workflows`, {
+      const isUpdate = activeWorkflowId && !activeWorkflowId.startsWith('unsaved_');
+      const method = isUpdate ? 'put' : 'post';
+      const endpoint = isUpdate ? `${API_URL}/workflows/${activeWorkflowId}` : `${API_URL}/workflows`;
+
+      const res = await axios[method](endpoint, {
         name: workflowName,
         nodes,
         edges
       });
+
       setShowSaveModal(false);
       // Update local state if it's the current tab
       setOpenWorkflows(prev => prev.map(wf =>
-        (wf._id || wf.id) === activeWorkflowId ? { ...wf, name: workflowName, nodes, edges } : wf
+        (wf._id || wf.id) === activeWorkflowId ? { ...wf, _id: res.data._id, id: res.data._id, name: workflowName, nodes, edges } : wf
       ));
-      notify('success', 'Your workflow has been saved to the database.', 'Workflow Saved');
-      fetchWorkflows(); // Refresh list to get the real MongoDB ID if it was unsaved
+      
+      if (!isUpdate) {
+        setActiveWorkflowId(res.data._id);
+      }
+
+      notify('success', isUpdate ? 'Workflow updated successfully.' : 'Your workflow has been saved to the database.', 'Workflow Saved');
+      fetchWorkflows(); 
     } catch (error) {
       console.error('Failed to save workflow:', error);
       notify('error', 'Error saving workflow to database.');
@@ -834,6 +859,7 @@ const BuilderCanvas = () => {
           selectedNode={selectedNode}
           setSelectedNode={setSelectedNode}
           updateNodeConfig={updateNodeConfig}
+          onDebug={() => handleDebugNode(selectedNode)}
         />
       )}
 
@@ -867,6 +893,7 @@ const BuilderCanvas = () => {
         onClose={() => setShowTestInputModal(false)}
         onRun={executeTestRun}
         triggerNode={nodes.find(n => n.data?.isTrigger || n.data?.type?.toLowerCase().includes('trigger') || n.data?.type === 'app_event' || n.data?.type === 'form_submission' || n.data?.type === 'chat_message' || n.data?.type === 'other_ways')}
+        nodes={nodes}
       />
 
       <PublishModal

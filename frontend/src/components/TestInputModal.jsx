@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Play, Zap, Clock, Webhook, FileEdit, MessageSquare, Radio, ArrowRightToLine, Folder, MousePointer2, AlertCircle } from 'lucide-react';
+import { X, Play, Zap, Clock, Webhook, FileEdit, MessageSquare, Radio, ArrowRightToLine, Folder, MousePointer2, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
 const TRIGGER_CONFIGS = {
     manual_trigger: {
@@ -101,21 +101,83 @@ const COLOR_MAP = {
     orange: { border: 'border-orange-500/30', bg: 'bg-orange-500/10', icon: 'bg-orange-500/20 text-orange-400', btn: 'bg-orange-500 hover:bg-orange-600 shadow-[0_4px_14px_rgba(249,115,22,0.3)]', badge: 'bg-orange-500/10 text-orange-400 border-orange-500/20', label: 'text-orange-400' },
 };
 
-export default function TestInputModal({ isOpen, onClose, onRun, triggerNode }) {
+export default function TestInputModal({ isOpen, onClose, onRun, triggerNode, nodes = [] }) {
     const [values, setValues] = useState({});
     const [jsonValues, setJsonValues] = useState({});
     const [jsonError, setJsonError] = useState(null);
     const [activeTab, setActiveTab] = useState('fields');
+    const [showPasswords, setShowPasswords] = useState({});
 
     const triggerType = triggerNode?.data?.type || 'manual_trigger';
     const config = TRIGGER_CONFIGS[triggerType] || TRIGGER_CONFIGS['manual_trigger'];
     const colors = COLOR_MAP[config.color];
     const Icon = config.icon;
 
-    // Initialize defaults when trigger changes
+    // ── Dynamic Field Generation ─────────────────────────────────────────────
+    const getWorkflowRequiredFields = () => {
+        const dynamicFields = [...config.fields];
+        const fieldKeys = new Set(dynamicFields.map(f => f.key));
+
+        nodes.forEach(node => {
+            const type = node.data?.type;
+            const config = node.data?.config || {};
+
+            // 1. Auto-detect Auth fields
+            if (type === 'user_registration' || type === 'user_login') {
+                if (!fieldKeys.has('email')) {
+                    dynamicFields.push({ key: 'email', label: 'Email Address', type: 'email', placeholder: 'user@example.com', default: 'test@example.com' });
+                    fieldKeys.add('email');
+                }
+                if (!fieldKeys.has('password')) {
+                    dynamicFields.push({ key: 'password', label: 'Password', type: 'password', placeholder: '••••••••', default: 'password123' });
+                    fieldKeys.add('password');
+                }
+            }
+
+            // 2. Scan for custom parameters in registration
+            if (type === 'user_registration' && config.parameters) {
+                config.parameters.forEach(p => {
+                    if (p.name && !fieldKeys.has(p.name)) {
+                        dynamicFields.push({ 
+                            key: p.name, 
+                            label: p.name.charAt(0).toUpperCase() + p.name.slice(1), 
+                            type: p.type === 'date' ? 'date' : p.type === 'time' ? 'time' : p.type === 'number' ? 'number' : 'text', 
+                            placeholder: `Enter ${p.name}...`,
+                            default: '' 
+                        });
+                        fieldKeys.add(p.name);
+                    }
+                });
+            }
+
+            // 3. Scan for {{payload.VAR}} templates in any string field
+            const scan = (val) => {
+                if (typeof val !== 'string') return;
+                const matches = val.matchAll(/\{\{\s*(?:payload|input)\.([\w\d\_ ]+?)\s*\}\}/g);
+                for (const m of matches) {
+                    const key = m[1].trim();
+                    if (!fieldKeys.has(key)) {
+                        dynamicFields.push({ key, label: `Variable: ${key}`, type: 'text', placeholder: `Data for {{payload.${key}}}`, default: '' });
+                        fieldKeys.add(key);
+                    }
+                }
+            };
+
+            Object.values(config).forEach(v => {
+                if (typeof v === 'string') scan(v);
+                else if (Array.isArray(v)) v.forEach(item => typeof item === 'object' && Object.values(item).forEach(scan));
+            });
+        });
+
+        return dynamicFields;
+    };
+
+    const workflowFields = getWorkflowRequiredFields();
+
+    // Initialize defaults when trigger or nodes changes
     useEffect(() => {
         const defaults = {};
-        config.fields.forEach(f => {
+        workflowFields.forEach(f => {
             defaults[f.key] = f.type === 'datetime-local'
                 ? new Date().toISOString().slice(0, 16)
                 : f.default || '';
@@ -126,7 +188,7 @@ export default function TestInputModal({ isOpen, onClose, onRun, triggerNode }) 
             setJsonValues({ [config.jsonField.key]: config.jsonField.default || '{}' });
         }
         setJsonError(null);
-    }, [triggerType, isOpen]);
+    }, [triggerType, isOpen, nodes.length]);
 
     const handleRun = () => {
         let payload = { source: 'test', trigger_type: triggerType, ...values };
@@ -198,7 +260,7 @@ export default function TestInputModal({ isOpen, onClose, onRun, triggerNode }) 
 
                     {activeTab === 'fields' && (
                         <div className="flex flex-col gap-4">
-                            {config.fields.map((field) => (
+                            {workflowFields.map((field) => (
                                 <div key={field.key} className="flex flex-col gap-2">
                                     <label className="text-[0.8rem] text-slate-400 font-medium">{field.label}</label>
                                     {field.type === 'select' ? (
@@ -210,13 +272,24 @@ export default function TestInputModal({ isOpen, onClose, onRun, triggerNode }) 
                                             {field.options.map(o => <option key={o} value={o}>{o}</option>)}
                                         </select>
                                     ) : (
-                                        <input
-                                            type={field.type}
-                                            className="bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-white text-[0.9rem] outline-none focus:border-blue-500/50 transition-all placeholder:text-slate-600"
-                                            placeholder={field.placeholder}
-                                            value={values[field.key] ?? field.default}
-                                            onChange={e => setValues(v => ({ ...v, [field.key]: e.target.value }))}
-                                        />
+                                        <div className="relative">
+                                            <input
+                                                type={field.type === 'password' ? (showPasswords[field.key] ? 'text' : 'password') : field.type}
+                                                className={`w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-white text-[0.9rem] outline-none focus:border-blue-500/50 transition-all placeholder:text-slate-600 ${field.type === 'password' ? 'pr-12' : ''}`}
+                                                placeholder={field.placeholder}
+                                                value={values[field.key] ?? field.default}
+                                                onChange={e => setValues(v => ({ ...v, [field.key]: e.target.value }))}
+                                            />
+                                            {field.type === 'password' && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPasswords(prev => ({ ...prev, [field.key]: !prev[field.key] }))}
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-slate-500 hover:text-white transition-colors cursor-pointer bg-transparent border-none"
+                                                >
+                                                    {showPasswords[field.key] ? <EyeOff size={16} /> : <Eye size={16} />}
+                                                </button>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
                             ))}

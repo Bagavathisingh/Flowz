@@ -32,8 +32,11 @@ router.post('/trigger/webhook/:workflowId', async (req, res) => {
 });
 
 router.get('/trigger/webhook/:workflowId/info', async (req, res) => {
-    const baseUrl = (process.env.BASE_URL || "").trim() || `${req.protocol}://${req.get('host')}`;
-    res.json({ url: `${baseUrl}/api/trigger/webhook/${req.params.workflowId}`, method: 'POST' });
+    const baseUrl = (process.env.BASE_URL || "").trim() || 
+                    (req.get('x-forwarded-proto') && req.get('x-forwarded-host') 
+                        ? `${req.get('x-forwarded-proto')}://${req.get('x-forwarded-host')}` 
+                        : `${req.protocol}://${req.get('host')}`);
+    res.json({ url: `${baseUrl.replace(/\/$/, '')}/api/trigger/webhook/${req.params.workflowId}`, method: 'POST' });
 });
 
 router.post('/trigger/form/:workflowId', async (req, res) => {
@@ -50,8 +53,11 @@ router.post('/trigger/form/:workflowId', async (req, res) => {
 router.get('/trigger/form/:workflowId/info', async (req, res) => {
     const wf = await Workflow.findById(req.params.workflowId);
     if (!wf) return res.status(404).json({ error: 'Workflow not found' });
-    const baseUrl = (process.env.BASE_URL || "").trim() || `${req.protocol}://${req.get('host')}`;
-    res.json({ submission_url: `${baseUrl}/api/trigger/form/${req.params.workflowId}`, method: 'POST' });
+    const baseUrl = (process.env.BASE_URL || "").trim() || 
+                    (req.get('x-forwarded-proto') && req.get('x-forwarded-host') 
+                        ? `${req.get('x-forwarded-proto')}://${req.get('x-forwarded-host')}` 
+                        : `${req.protocol}://${req.get('host')}`);
+    res.json({ submission_url: `${baseUrl.replace(/\/$/, '')}/api/trigger/form/${req.params.workflowId}`, method: 'POST' });
 });
 
 router.post('/trigger/sub-workflow/:workflowId', async (req, res) => {
@@ -144,8 +150,13 @@ router.post('/trigger/app-event/:workflowId', async (req, res) => {
 router.post('/trigger/app-event/:workflowId/register-telegram', async (req, res) => {
     try {
         const { telegram_token } = req.body;
-        const baseUrl = (process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).trim();
-        const webhookUrl = `${baseUrl}/api/trigger/app-event/${req.params.workflowId}`;
+        // Ensure no trailing slash in baseUrl
+        const baseUrl = (process.env.BASE_URL || `${req.protocol}://${req.get('host')}`).trim().replace(/\/+$/, '');
+        // Ensure no leading slash in workflowId
+        const workflowId = req.params.workflowId.replace(/^\/+/, '');
+        const webhookUrl = `${baseUrl}/api/trigger/app-event/${workflowId}`;
+        
+        console.log(`[TELEGRAM] Registering webhook: ${webhookUrl}`);
         const tgRes = await axios.post(`https://api.telegram.org/bot${telegram_token}/setWebhook`, { url: webhookUrl });
         res.json({ success: true, webhookUrl, telegram: tgRes.data });
     } catch (error) { res.status(500).json({ error: error.message }); }
@@ -251,8 +262,50 @@ router.post('/workflows', async (req, res) => {
             });
         }
 
-        const baseUrl = (process.env.BASE_URL || "").trim() || `${req.protocol}://${req.get('host')}`;
-        res.status(201).json({ ...saved.toObject(), baseUrl });
+        const baseUrl = (process.env.BASE_URL || "").trim() || 
+                        (req.get('x-forwarded-proto') && req.get('x-forwarded-host') 
+                            ? `${req.get('x-forwarded-proto')}://${req.get('x-forwarded-host')}` 
+                            : `${req.protocol}://${req.get('host')}`);
+        res.status(201).json({ ...saved.toObject(), baseUrl: baseUrl.replace(/\/$/, '') });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+router.put('/workflows/:id', async (req, res) => {
+    try {
+        const { name, nodes, edges } = req.body;
+        const wf = await Workflow.findById(req.params.id);
+        
+        if (!wf || wf.userId.toString() !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied or workflow not found' });
+        }
+
+        wf.name = name || wf.name;
+        wf.nodes = nodes || wf.nodes;
+        wf.edges = edges || wf.edges;
+        wf.updatedAt = Date.now();
+        const saved = await wf.save();
+
+        // Refresh triggers
+        stopSchedule(req.params.id);
+        const scheduleTrigger = nodes?.find(n => n.data?.type === 'schedule_trigger');
+        if (scheduleTrigger && scheduleTrigger.data?.config?.interval) {
+            const cronExpr = intervalToCron(scheduleTrigger.data.config.interval);
+            registerSchedule(saved._id.toString(), cronExpr, async (ctx) => {
+                try {
+                    await runWorkflow(nodes, edges, ctx.trigger.payload, req.user.id, saved._id.toString(), 'schedule');
+                } catch (e) {
+                    console.error(`[SCHEDULER] Workflow update failed:`, e.message);
+                }
+            });
+        }
+
+        const baseUrl = (process.env.BASE_URL || "").trim() || 
+                        (req.get('x-forwarded-proto') && req.get('x-forwarded-host') 
+                            ? `${req.get('x-forwarded-proto')}://${req.get('x-forwarded-host')}` 
+                            : `${req.protocol}://${req.get('host')}`);
+        res.json({ ...saved.toObject(), baseUrl: baseUrl.replace(/\/$/, '') });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }
