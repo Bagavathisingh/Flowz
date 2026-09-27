@@ -5,7 +5,10 @@ let io;
 export const initSocketParams = (httpServer) => {
     io = new SocketIOServer(httpServer, {
         cors: {
-            origin: (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(o => o.trim()),
+            origin: [
+                ...(process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(o => o.trim()),
+                'https://flowz-agent.vercel.app'
+            ],
             methods: ['GET', 'POST'],
             credentials: true
         }

@@ -265,25 +265,16 @@ const BuilderCanvas = () => {
 
     if (data.nodes && data.edges) {
       data.nodes.forEach((n, index) => {
-        // Find if this node already exists to preserve some of its local config/data
-        const existingNode = nodes.find(oldNode => oldNode.id === n.id);
+        const nodeId = (n.id !== undefined && n.id !== null && n.id !== '') ? n.id.toString() : getId('ai_node');
+        const existingNode = nodes.find(oldNode => oldNode.id === nodeId);
         const existingConfig = existingNode?.data?.config || {};
 
-        // Type Normalization Mapping (AI often gets creative with names)
         const typeAliases = {
-          'telegram': 'app_event',
-          'telegram_bot': 'app_event',
-          'telegram_trigger': 'app_event',
-          'gmail': 'send_email',
-          'email': 'send_email',
-          'db': 'save_to_database',
-          'mongodb': 'save_to_database',
-          'database': 'save_to_database',
-          'rest_api': 'http_request',
-          'api_call': 'http_request',
-          'wait': 'delay',
-          'condition': 'ifElse',
-          'split': 'ifElse'
+          'telegram': 'app_event', 'telegram_bot': 'app_event', 'telegram_trigger': 'app_event',
+          'gmail': 'send_email', 'email': 'send_email',
+          'db': 'save_to_database', 'mongodb': 'save_to_database', 'database': 'save_to_database',
+          'rest_api': 'http_request', 'api_call': 'http_request',
+          'wait': 'delay', 'condition': 'ifElse', 'split': 'ifElse'
         };
 
         const rawType = n.type || n.data?.type || 'http_request';
@@ -291,7 +282,7 @@ const BuilderCanvas = () => {
         const actualLabel = n.data?.label || n.label || actualType;
 
         generatedNodes.push({
-          id: n.id,
+          id: nodeId,
           type: 'customTask',
           position: n.position || (existingNode?.position) || { x: 300 + (index % 2 === 0 ? 0 : 250), y: 100 + (index * 120) },
           data: {
@@ -304,29 +295,30 @@ const BuilderCanvas = () => {
       });
 
       data.edges.forEach((e) => {
-        const sourceNode = generatedNodes.find(n => n.id === e.source);
+        const sourceId = (e.source !== undefined && e.source !== null && e.source !== '') ? e.source.toString() : '';
+        const targetId = (e.target !== undefined && e.target !== null && e.target !== '') ? e.target.toString() : '';
+        const sourceNode = generatedNodes.find(n => n.id === sourceId);
         const isIfElse = sourceNode && sourceNode.data && sourceNode.data.type === 'ifElse';
         let safeSourceHandle = e.sourceHandle;
         
-        // If the source node is not an ifElse node, it does not have named handles.
         if (!isIfElse) {
             safeSourceHandle = undefined;
         } else if (safeSourceHandle !== 'true' && safeSourceHandle !== 'false') {
-            // For ifElse nodes, ensure valid handles
-            safeSourceHandle = 'true'; // default to true if malformed
+            safeSourceHandle = 'true';
         }
 
-        generatedEdges.push({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          type: 'n8n',
-          sourceHandle: safeSourceHandle || undefined
-        });
+        if (sourceId && targetId) {
+          generatedEdges.push({
+            id: (e.id !== undefined && e.id !== null && e.id !== '') ? e.id.toString() : getId('ai_edge'),
+            source: sourceId,
+            target: targetId,
+            type: 'n8n',
+            sourceHandle: safeSourceHandle || undefined
+          });
+        }
       });
     } else {
       let yOffset = 100;
-
       if (data.trigger) {
         const tType = data.trigger.type || 'webhook_trigger';
         generatedNodes.push({
@@ -352,7 +344,6 @@ const BuilderCanvas = () => {
             position: { x: 300, y: yOffset },
             data: { label: `Action ${index + 1}`, type: action.type, isTrigger: false, config: action.config || {} }
           });
-
           generatedEdges.push({
             id: `edge_${index}`,
             source: index === 0 ? 'trigger_1' : `action_${index}`,
@@ -368,12 +359,18 @@ const BuilderCanvas = () => {
     setEdges(generatedEdges);
     setShowAiModal(false);
     setGeneratedJsonResult(null);
-    setSelectedNode(null); // Clear selected node to hide property panel
+    setSelectedNode(null); 
     setAiPrompt('');
-    if (!suggestedData) notify('success', 'Workflow applied to canvas.', 'Success');
+    
+    if (!suggestedData || isEvent) notify('success', 'Workflow applied to canvas.', 'Success');
+    
     setTimeout(() => {
-      onLayout(generatedNodes, generatedEdges);
-      setViewport({ x: 0, y: 0, zoom: 0.6 }, { duration: 800 });
+      try {
+        onLayout(generatedNodes, generatedEdges);
+        setViewport({ x: 0, y: 0, zoom: 0.6 }, { duration: 800 });
+      } catch (err) {
+        console.error('Layout failed:', err);
+      }
     }, 200);
   };
 

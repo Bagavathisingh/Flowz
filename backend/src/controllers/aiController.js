@@ -128,9 +128,16 @@ const WORKFLOW_RESPONSE_SCHEMA = {
     required: ['nodes', 'edges']
 };
 
-const WORKFLOW_SYSTEM_PROMPT = `You are an advanced workflow architect generator. Return ONLY JSON.
-Reference Node Types: ${ALLOWED_NODE_TYPES.join(', ')}.
-Ensure data mapping uses {{payload.field}} or {{results.NODE.output}}.`;
+const WORKFLOW_SYSTEM_PROMPT = `You are an expert low-code workflow architect. Your job is to translate a user's plain-English request into a robust, logical execution graph consisting of nodes and edges.
+Return ONLY valid JSON matching the exact schema.
+
+CRITICAL RULES:
+1. Every workflow MUST have at least one trigger node (e.g., webhook_trigger, schedule_trigger) and at least one action node.
+2. YOU MUST CREATE EDGES TO CONNECT THE NODES. A workflow without edges cannot execute! Ensure the edges array is populated.
+3. Every edge must have a unique 'id', a 'source' (the string id of the starting node), and a 'target' (the string id of the receiving node).
+4. For data mapping, use {{payload.field}} or {{results.NODE_ID.output}}.
+5. Only use these precise ALLOWED NODE TYPES: ${ALLOWED_NODE_TYPES.join(', ')}.
+6. If the user requests an API fetching, login, or signup workflow, YOU MUST include 'ifElse' nodes to route logic based on backend HTTP status codes (e.g. 200/201 for success, 404 for not found, 401 for unauthorized, 500 for error) to realistically simulate handling endpoint responses.`;
 
 // ─── Core: Generic NVIDIA NIM Completion ────────────────────────────────────
 const nvidiaChatCompletion = async (systemPrompt, userPrompt, modelName = 'meta/llama-3.3-70b-instruct') => {
@@ -160,10 +167,15 @@ const nvidiaChatCompletion = async (systemPrompt, userPrompt, modelName = 'meta/
 };
 
 export const generateWorkflowConfig = async (req, res) => {
-    const { prompt } = req.body;
+    let { prompt } = req.body;
+    if (!prompt || prompt.trim() === '') {
+        prompt = "Create a basic sample workflow that triggers via webhook, logs some data, and sends an email.";
+    }
+    
     try {
         const model = genAI.getGenerativeModel({
             model: 'gemini-2.0-flash',
+            systemInstruction: WORKFLOW_SYSTEM_PROMPT,
             generationConfig: { responseMimeType: 'application/json', responseSchema: WORKFLOW_RESPONSE_SCHEMA }
         });
         const result = await model.generateContent(prompt);
@@ -181,11 +193,22 @@ export const generateWorkflowConfig = async (req, res) => {
 };
 
 export const modifyWorkflowConfig = async (req, res) => {
-    const { currentWorkflow, prompt } = req.body;
-    const sys = `Modify this workflow JSON: ${JSON.stringify(currentWorkflow)}. Return ONLY JSON.`;
+    let { currentWorkflow, prompt } = req.body;
+    if (!prompt || prompt.trim() === '') {
+        prompt = "Optimize and clean up this workflow's structure.";
+    }
+    
+    const sys = `${WORKFLOW_SYSTEM_PROMPT}
+You must modify this existing workflow JSON based on the user request.
+Current Workflow: ${JSON.stringify(currentWorkflow)}`;
+
     try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-        const result = await model.generateContent(`${sys}\n\nUser: ${prompt}`);
+        const model = genAI.getGenerativeModel({ 
+            model: 'gemini-2.0-flash',
+            systemInstruction: sys,
+            generationConfig: { responseMimeType: 'application/json', responseSchema: WORKFLOW_RESPONSE_SCHEMA }
+        });
+        const result = await model.generateContent(prompt);
         return res.json(JSON.parse(extractJson(result.response.text())));
     } catch (err) {
         res.status(500).json(currentWorkflow);
@@ -194,12 +217,23 @@ export const modifyWorkflowConfig = async (req, res) => {
 
 export const explainErrorLog = async (req, res) => {
     const { logs, error, currentWorkflow } = req.body;
-    const sys = `You are a Senior Debugger. Analyze failure and return JSON:
-{ "classification": "USER_SIDE_ERROR" | "SYSTEM_LOGIC_BUG", "explanation": "string", "cause": "string", "fix": "string", "suggestedFixWorkflow": null }`;
+    const sys = `You are a Senior Debugger. Analyze the workflow failure and return JSON with the following structure exactly:
+{ 
+  "classification": "USER_SIDE_ERROR", 
+  "explanation": "string", 
+  "cause": "string", 
+  "fix": "string", 
+  "suggestedFixWorkflow": null
+}
+For the classification, use either "USER_SIDE_ERROR" or "SYSTEM_LOGIC_BUG".
+CRITICAL: If the error can be healed by changing the workflow architecture or node configurations, provide the FULLY corrected workflow graph inside 'suggestedFixWorkflow' as an object containing 'nodes' and 'edges' arrays instead of null.`;
     const user = `Error: ${error}\nLogs: ${JSON.stringify(logs)}\nWorkflow: ${JSON.stringify(currentWorkflow)}`;
 
     try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const model = genAI.getGenerativeModel({ 
+            model: 'gemini-2.0-flash',
+            generationConfig: { responseMimeType: 'application/json' }
+        });
         const result = await model.generateContent(`${sys}\n\n${user}`);
         return res.json(JSON.parse(extractJson(result.response.text())));
     } catch (err) {
@@ -215,11 +249,19 @@ export const explainErrorLog = async (req, res) => {
 
 export const chatDebug = async (req, res) => {
     const { message, history, currentWorkflow, lastError } = req.body;
-    const sys = `You are Flowz AI Assistant. Return JSON: { "text": "string", "suggestedFixWorkflow": null }`;
+    const sys = `You are Flowz AI Assistant. Return JSON with the exact following structure: 
+{ 
+  "text": "Your textual response here...", 
+  "suggestedFixWorkflow": null 
+}
+CRITICAL: If the user asks you to fix their workflow or you identify an auto-healable logic bug, provide the FULLY corrected workflow graph inside 'suggestedFixWorkflow' as an object containing 'nodes' and 'edges' arrays instead of null.`;
     const user = `History: ${JSON.stringify(history)}\nWorkflow: ${JSON.stringify(currentWorkflow)}\nError: ${lastError}\nUser: ${message}`;
 
     try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const model = genAI.getGenerativeModel({ 
+            model: 'gemini-2.0-flash',
+            generationConfig: { responseMimeType: 'application/json' }
+        });
         const result = await model.generateContent(`${sys}\n\n${user}`);
         return res.json(JSON.parse(extractJson(result.response.text())));
     } catch (err) {

@@ -24,9 +24,10 @@ export const io = initSocketParams(httpServer);
 // ── Fix #4: Locked CORS — replaces wildcard app.use(cors()) ───────────────────
 // In development, VITE_FRONTEND_URL is typically http://localhost:5173
 // In production, set FRONTEND_URL in your Render/deployment environment
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
-    .split(',')
-    .map(o => o.trim());
+const allowedOrigins = [
+    ...(process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(o => o.trim()),
+    'https://flowz-agent.vercel.app'
+];
 
 app.use((req, res, next) => {
     // ── Public Triggers are ALWAYS open ─────────────────────────────────────────
